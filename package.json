@@ -10,7 +10,10 @@
     "format": "prettier -w .",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down -v",
-    "infra:logs": "docker compose -f infra/docker-compose.yml logs -f --tail=200"
+    "infra:logs": "docker compose -f infra/docker-compose.yml logs -f --tail=200",
+    "mobile:dev": "pnpm --filter mobile dev",
+    "mobile:android": "pnpm --filter mobile android",
+    "mobile:ios": "pnpm --filter mobile ios"
   },
   "devDependencies": {
     "eslint": "^9.0.0",
