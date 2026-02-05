@@ -31,7 +31,7 @@ WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/api/package.json apps/api/package.json
 
-RUN pnpm install --frozen-lockfile --prod --filter api...
+RUN pnpm install --frozen-lockfile --filter api...
 
 COPY --from=builder /app/apps/api/dist /app/apps/api/dist
 
