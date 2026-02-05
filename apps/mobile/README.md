@@ -19,3 +19,12 @@ pnpm mobile:dev
 pnpm mobile:android
 pnpm mobile:ios
 ```
+
+## Windows note
+
+Если на Windows при `expo start --android` возникает ошибка `ENOENT mkdir ...\\.expo\\metro\\externals\\node:sea`,
+то помогло добавить `metro.config.js` с отключёнными node externals и очистить кеш:
+
+```bash
+pnpm --filter mobile start:clear
+```
