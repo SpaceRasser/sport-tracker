@@ -53,3 +53,33 @@ export async function authSmsVerify(payload: SmsVerifyPayload) {
   const res = await api.post('/auth/sms/verify', payload);
   return res.data as { user: any; accessToken: string; refreshToken: string };
 }
+
+// ===========================
+// ✅ Demo auth (phone + password)
+// ===========================
+
+export async function authDemoCheckPhone(phone: string) {
+  const res = await api.post('/auth/demo/check-phone', { phone });
+  return res.data as { exists: boolean };
+}
+
+export type DemoRegisterPayload = {
+  phone: string;
+  password: string;
+  name?: string;
+};
+
+export async function authDemoRegister(payload: DemoRegisterPayload) {
+  const res = await api.post('/auth/demo/register', payload);
+  return res.data as { user: any; accessToken: string; refreshToken: string };
+}
+
+export type DemoLoginPayload = {
+  phone: string;
+  password: string;
+};
+
+export async function authDemoLogin(payload: DemoLoginPayload) {
+  const res = await api.post('/auth/demo/login', payload);
+  return res.data as { user: any; accessToken: string; refreshToken: string };
+}

@@ -7,6 +7,11 @@ import {
   VkIdLoginPayload,
   authSmsVerify,
   SmsVerifyPayload,
+  authDemoCheckPhone,
+  authDemoLogin,
+  authDemoRegister,
+  DemoLoginPayload,
+  DemoRegisterPayload,
 } from '../api/authApi';
 
 type AuthState = {
@@ -16,7 +21,14 @@ type AuthState = {
 };
 
 type AuthContextValue = AuthState & {
+  // старый быстрый демо-вход (можешь потом убрать из UI)
   signInDemo: () => Promise<void>;
+
+  // новые demo по телефону/паролю
+  demoCheckPhone: (phone: string) => Promise<{ exists: boolean }>;
+  signInDemoRegister: (payload: DemoRegisterPayload) => Promise<void>;
+  signInDemoLogin: (payload: DemoLoginPayload) => Promise<void>;
+
   signInVk: (payload: VkIdLoginPayload) => Promise<void>;
   signInSms: (payload: SmsVerifyPayload) => Promise<void>;
   signOut: () => Promise<void>;
@@ -57,10 +69,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     ...state,
 
+    // старый “один пользователь”
     signInDemo: async () => {
       setState((s) => ({ ...s, isLoading: true }));
       try {
         const data = await authDemo();
+        await setTokens(data.accessToken, data.refreshToken);
+        setState({ accessToken: data.accessToken, refreshToken: data.refreshToken, isLoading: false });
+      } catch (e) {
+        await clearTokens();
+        setState({ accessToken: null, refreshToken: null, isLoading: false });
+        throw e;
+      }
+    },
+
+    // ✅ demo check phone
+    demoCheckPhone: async (phone: string) => {
+      return authDemoCheckPhone(phone);
+    },
+
+    // ✅ demo register
+    signInDemoRegister: async (payload: DemoRegisterPayload) => {
+      setState((s) => ({ ...s, isLoading: true }));
+      try {
+        const data = await authDemoRegister(payload);
+        await setTokens(data.accessToken, data.refreshToken);
+        setState({ accessToken: data.accessToken, refreshToken: data.refreshToken, isLoading: false });
+      } catch (e) {
+        await clearTokens();
+        setState({ accessToken: null, refreshToken: null, isLoading: false });
+        throw e;
+      }
+    },
+
+    // ✅ demo login
+    signInDemoLogin: async (payload: DemoLoginPayload) => {
+      setState((s) => ({ ...s, isLoading: true }));
+      try {
+        const data = await authDemoLogin(payload);
         await setTokens(data.accessToken, data.refreshToken);
         setState({ accessToken: data.accessToken, refreshToken: data.refreshToken, isLoading: false });
       } catch (e) {
@@ -99,21 +145,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
 
     signOut: async () => {
-      setState((s) => ({ ...s, isLoading: true }));
+  setState((s) => ({ ...s, isLoading: true }));
+  try {
+    const refresh = await getRefreshToken(); // всегда из стораджа — актуально
+    if (refresh) {
       try {
-        const refresh = state.refreshToken ?? (await getRefreshToken());
-        if (refresh) {
-          try {
-            await authLogout(refresh);
-          } catch {
-            // ignore
-          }
-        }
-      } finally {
-        await clearTokens();
-        setState({ accessToken: null, refreshToken: null, isLoading: false });
-      }
-    },
+        await authLogout(refresh);
+      } catch {}
+    }
+  } finally {
+    await clearTokens();
+    setState({ accessToken: null, refreshToken: null, isLoading: false });
+  }
+},
   }), [state]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
