@@ -7,33 +7,44 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 export class MinioService {
   private s3: S3Client;
   private bucket: string;
-  private publicBaseUrl: string;
+  private publicBaseUrl: string | null;
 
   constructor(private config: ConfigService) {
-    const endpoint = this.config.get<string>('MINIO_ENDPOINT') ?? 'localhost';
-    const port = Number(this.config.get<string>('MINIO_PORT') ?? 9000);
+    // ✅ теперь endpoint можно передавать целиком:
+    // MINIO_ENDPOINT_URL=https://t3.storageapi.dev
+    // или для minio: http://localhost:9000
+    const endpointUrl =
+      this.config.get<string>('MINIO_ENDPOINT_URL') ??
+      this.config.get<string>('MINIO_PUBLIC_BASE_URL') ?? // fallback
+      this.config.get<string>('MINIO_ENDPOINT') ?? // старое
+      'http://localhost:9000';
 
     const accessKeyId =
-  this.config.get<string>('MINIO_ROOT_USER') ??
-  this.config.get<string>('MINIO_ACCESS_KEY') ??
-  'minioadmin';
+      this.config.get<string>('MINIO_ACCESS_KEY') ??
+      this.config.get<string>('MINIO_ROOT_USER') ??
+      'minioadmin';
 
-const secretAccessKey =
-  this.config.get<string>('MINIO_ROOT_PASSWORD') ??
-  this.config.get<string>('MINIO_SECRET_KEY') ??
-  'minioadmin';
-
-console.log('[MinIO] accessKeyId =', accessKeyId);
-
-
+    const secretAccessKey =
+      this.config.get<string>('MINIO_SECRET_KEY') ??
+      this.config.get<string>('MINIO_ROOT_PASSWORD') ??
+      'minioadmin';
 
     this.bucket = this.config.get<string>('MINIO_BUCKET') ?? 'avatars';
-    this.publicBaseUrl = (this.config.get<string>('MINIO_PUBLIC_BASE_URL') ?? `http://${endpoint}:${port}`).replace(/\/$/, '');
+
+    // public base url (если есть публичная раздача)
+    // если нет — просто вернём null и на клиенте можно будет не показывать прямую ссылку.
+    this.publicBaseUrl =
+      this.config.get<string>('MINIO_PUBLIC_BASE_URL')?.replace(/\/$/, '') ?? null;
+
+    const forcePathStyle =
+      (this.config.get<string>('S3_FORCE_PATH_STYLE') ?? 'false').toLowerCase() === 'true';
+
+    const region = this.config.get<string>('S3_REGION') ?? 'auto';
 
     this.s3 = new S3Client({
-      region: 'us-east-1',
-      endpoint: `http://${endpoint}:${port}`,
-      forcePathStyle: true, // важно для MinIO
+      region,
+      endpoint: endpointUrl,
+      forcePathStyle,
       credentials: { accessKeyId, secretAccessKey },
     });
   }
@@ -49,7 +60,10 @@ console.log('[MinIO] accessKeyId =', accessKeyId);
       expiresIn: params.expiresInSec ?? 60,
     });
 
-    const publicUrl = `${this.publicBaseUrl}/${this.bucket}/${encodeURIComponent(params.objectKey)}`;
+    const publicUrl = this.publicBaseUrl
+      ? `${this.publicBaseUrl}/${this.bucket}/${params.objectKey}`
+      : null;
+
     return { uploadUrl, publicUrl };
   }
 }
