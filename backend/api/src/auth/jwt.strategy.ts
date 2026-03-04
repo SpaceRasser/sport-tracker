@@ -1,25 +1,26 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-
-type JwtPayload = {
-  userId?: string;  // ✅ мы кладём это в токен
-  sub?: string;     // иногда используют sub
-};
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor() {
+  constructor(config: ConfigService) {
+    const secret = config.get<string>('JWT_ACCESS_SECRET');
+
+    if (!secret) {
+      // лучше упасть понятной ошибкой на старте, чем странно крашиться внутри passport-jwt
+      throw new Error('JWT_ACCESS_SECRET is missing (Railway Variables)');
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_ACCESS_SECRET, // ✅ твой секрет
+      secretOrKey: secret,
     });
   }
 
-  async validate(payload: JwtPayload) {
-    const userId = payload.userId ?? payload.sub;
-    if (!userId) throw new UnauthorizedException('Invalid token payload');
-    return { userId };
+  async validate(payload: any) {
+    return { userId: payload.sub };
   }
 }
