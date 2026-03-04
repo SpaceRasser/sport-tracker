@@ -1,0 +1,277 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserLevel {
+  beginner
+  intermediate
+  advanced
+}
+
+enum Gender {
+  male
+  female
+  other
+  unknown
+}
+
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  vkId         String? @unique @map("vk_id") @db.Text
+  phone        String? @unique @db.Text
+  email        String? @db.Text
+  name         String? @db.Text
+  avatarUrl    String? @map("avatar_url") @db.Text
+  passwordHash String? @map("password_hash") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  profile          Profile?
+  workouts         Workout[]
+  records          PersonalRecord[]
+  userAchievements UserAchievement[]
+  recommendations  UserRecommendation[]
+  devices          UserDevice[]
+  notificationSettings NotificationSettings?
+  goals                Goal[]
+
+  @@index([vkId], map: "idx_users_vk_id")
+  @@index([phone], map: "idx_users_phone")
+  @@map("users")
+}
+
+model Profile {
+  userId String @id @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  gender    Gender     @default(unknown)
+  birthdate DateTime?  @db.Date
+  heightCm  Int?       @map("height_cm")
+  weightKg  Decimal?   @map("weight_kg") @db.Decimal(6, 2)
+  level     UserLevel?
+  goals     Json?      @db.JsonB
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("profiles")
+}
+
+model ActivityType {
+  id           String @id @default(uuid()) @db.Uuid
+  code         String @unique @db.Text
+  name         String @db.Text
+  fieldsSchema Json   @map("fields_schema") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workouts Workout[]
+  records  PersonalRecord[]
+
+  @@map("activity_types")
+}
+
+model Workout {
+  id             String @id @default(uuid()) @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  activityTypeId String @map("activity_type_id") @db.Uuid
+
+  startedAt   DateTime @map("started_at")
+  durationSec Int?     @map("duration_sec")
+  notes       String?  @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activityType ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Restrict)
+
+  metrics WorkoutMetric[]
+  media   WorkoutMedia[]
+
+  // Opposite side for PersonalRecord.workout
+  recordLinks PersonalRecord[] @relation("WorkoutRecords")
+
+  @@index([userId, startedAt(sort: Desc)], map: "idx_workouts_user_started_at")
+  @@index([activityTypeId], map: "idx_workouts_activity_type")
+  @@map("workouts")
+}
+
+model WorkoutMetric {
+  id        String  @id @default(uuid()) @db.Uuid
+  workoutId String  @map("workout_id") @db.Uuid
+  metricKey String  @map("metric_key") @db.Text
+  valueNum  Decimal @map("value_num") @db.Decimal(12, 4)
+  unit      String? @db.Text
+
+  workout Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@index([workoutId, metricKey], map: "idx_workout_metrics_workout_metric")
+  @@map("workout_metrics")
+}
+
+model WorkoutMedia {
+  id        String   @id @default(uuid()) @db.Uuid
+  workoutId String   @map("workout_id") @db.Uuid
+  objectKey String   @map("object_key") @db.Text
+  mimeType  String   @map("mime_type") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  workout Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@index([workoutId], map: "idx_workout_media_workout")
+  @@map("workout_media")
+}
+
+model PersonalRecord {
+  id             String @id @default(uuid()) @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  activityTypeId String @map("activity_type_id") @db.Uuid
+  metricKey      String @map("metric_key") @db.Text
+
+  bestValueNum Decimal  @map("best_value_num") @db.Decimal(12, 4)
+  achievedAt   DateTime @map("achieved_at")
+  workoutId    String?  @map("workout_id") @db.Uuid
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activityType ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Restrict)
+
+  // Add relation name + opposite in Workout.recordLinks
+  workout Workout? @relation("WorkoutRecords", fields: [workoutId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, activityTypeId, metricKey], map: "uq_records_user_activity_metric")
+  @@index([userId, activityTypeId, metricKey], map: "idx_records_user_activity_metric")
+  @@map("personal_records")
+}
+
+model Achievement {
+  id          String  @id @default(uuid()) @db.Uuid
+  code        String  @unique @db.Text
+  title       String  @db.Text
+  description String? @db.Text
+  rule        Json    @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  achievementId String   @map("achievement_id") @db.Uuid
+  achievedAt    DateTime @default(now()) @map("achieved_at")
+  meta          Json?    @db.JsonB
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId], map: "uq_user_achievements_user_achievement")
+  @@index([userId], map: "idx_user_achievements_user")
+  @@map("user_achievements")
+}
+
+model RecommendationTemplate {
+  id          String  @id @default(uuid()) @db.Uuid
+  code        String  @unique @db.Text
+  title       String  @db.Text
+  description String  @db.Text
+  rule        Json    @db.JsonB
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Opposite side for UserRecommendation.template
+  userRecommendations UserRecommendation[]
+
+  @@map("recommendation_templates")
+}
+
+model UserRecommendation {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  templateId  String    @map("template_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  meta        Json?     @db.JsonB
+  dismissedAt DateTime? @map("dismissed_at")
+
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template RecommendationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)], map: "idx_user_recommendations_user_created")
+  @@map("user_recommendations")
+}
+
+model UserDevice {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  platform   String   @db.Text // "android" | "ios"
+  token      String   @db.Text
+  deviceId   String?  @map("device_id") @db.Text
+  enabled    Boolean  @default(true)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token], map: "uq_user_devices_user_token")
+  @@index([userId], map: "idx_user_devices_user_id")
+  @@map("user_devices")
+}
+
+model NotificationSettings {
+  userId String @id @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  enabled                 Boolean @default(true)
+  timezone String? @db.Text // например "Europe/Amsterdam"
+
+  // “давно не тренировался”
+  inactivityEnabled       Boolean @default(true) @map("inactivity_enabled")
+  inactivityDays          Int     @default(3)    @map("inactivity_days")
+  lastInactivitySentAt    DateTime? @map("last_inactivity_sent_at")
+
+  // “время тренировки”
+  workoutTimeEnabled      Boolean @default(false) @map("workout_time_enabled")
+  workoutTimeLocal        String?  @map("workout_time_local") // "HH:MM"
+  workoutDaysMask         Int      @default(127)  @map("workout_days_mask") // 7 бит (Mon..Sun), 127 = все дни
+  lastWorkoutTimeSentAt   DateTime? @map("last_workout_time_sent_at")
+
+  // “новые советы”
+  recommendationsEnabled  Boolean @default(true)  @map("recommendations_enabled")
+  lastRecommendationsSentAt DateTime? @map("last_recommendations_sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_settings")
+}
+
+enum GoalType {
+  workouts_per_week
+}
+
+model Goal {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type       GoalType
+  target     Int
+  active     Boolean  @default(true)
+  achievedAt DateTime? @map("achieved_at")
+
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, active], map: "idx_goals_user_active")
+  @@map("goals")
+}
