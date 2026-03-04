@@ -13,7 +13,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main.js",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
-    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma",
     "railway:build": "npm run prisma:generate && npm run build",
     "railway:start": "npm run prisma:migrate:deploy && npm run start:prod",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
