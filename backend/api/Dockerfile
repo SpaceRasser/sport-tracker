@@ -4,15 +4,17 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --ignore-scripts
 
+
 FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Prisma schema уже на месте
-RUN npx prisma generate
+# Prisma generate строго после того, как prisma/schema.prisma уже внутри контейнера
+RUN npm run prisma:generate
 RUN npm run build
+
 
 FROM node:20-alpine AS runner
 WORKDIR /app
