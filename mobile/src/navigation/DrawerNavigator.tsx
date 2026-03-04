@@ -24,17 +24,19 @@ import AnalyticsScreen from '../screens/AnalyticsScreen';
 import AchievementsScreen from '../screens/AchievementsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import RecommendationsScreen from '../screens/RecommendationsScreen';
+import HealthImportScreen from '../screens/HealthImportScreen'; // ✅ ДОБАВИЛИ
 
-import { getMe } from '../api/userApi'; // <-- тот же getMe, что ты уже используешь в ProfileScreen
+import { getMe } from '../api/userApi';
 
 export type DrawerParamList = {
   Home: undefined;
+  Recommendations: undefined;
   AddWorkout: undefined;
   History: undefined;
   Analytics: undefined;
   Achievements: undefined;
+  HealthImport: undefined; // ✅ ДОБАВИЛИ
   Profile: undefined;
-  Recommendations: undefined;
 };
 
 const Drawer = createDrawerNavigator<DrawerParamList>();
@@ -135,7 +137,7 @@ function CustomDrawerContent(props: any) {
     loadMe();
   }, []);
 
-  // 2) обновлять, когда Drawer экран снова в фокусе (например после смены аватара)
+  // 2) обновлять, когда Drawer снова в фокусе (после смены аватара)
   useFocusEffect(
     React.useCallback(() => {
       loadMe();
@@ -147,15 +149,17 @@ function CustomDrawerContent(props: any) {
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.card }} edges={['top', 'bottom']}>
       <DrawerContentScrollView
         {...props}
-        // ВАЖНО: учитываем вырез/чёлку сверху
-        contentContainerStyle={{ paddingTop: Math.max(insets.top, 10), paddingBottom: 10 }}
+        contentContainerStyle={{
+          paddingTop: Math.max(insets.top, 10),
+          paddingBottom: 10,
+        }}
         style={{ backgroundColor: palette.card }}
       >
         <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
           <DrawerHeader
             palette={palette}
             name={name}
-            avatarUrl={avatarUrl ? `${avatarUrl}?v=${Date.now()}` : null} // лёгкий bust кеша
+            avatarUrl={avatarUrl ? `${avatarUrl}?v=${Date.now()}` : null} // cache-bust
             onGoProfile={() => props.navigation.navigate('Profile')}
           />
         </View>
@@ -184,9 +188,6 @@ export default function DrawerNavigator() {
       screenOptions={({ route, navigation }) => ({
         headerTitleAlign: 'center',
 
-        // Хедер: аккуратный, без "наезда" на вырезы.
-        // SafeArea для header React Navigation сам учитывает на iOS,
-        // но мы дополнительно делаем визуально лёгкий header.
         headerStyle: {
           backgroundColor: palette.card,
           ...(Platform.OS === 'ios'
@@ -219,6 +220,8 @@ export default function DrawerNavigator() {
           switch (route.name) {
             case 'Home':
               return <Ionicons name="home-outline" size={s} color={c} />;
+            case 'Recommendations':
+              return <Ionicons name="sparkles-outline" size={s} color={c} />;
             case 'AddWorkout':
               return <Ionicons name="add-circle-outline" size={s} color={c} />;
             case 'History':
@@ -227,10 +230,10 @@ export default function DrawerNavigator() {
               return <Ionicons name="stats-chart-outline" size={s} color={c} />;
             case 'Achievements':
               return <Ionicons name="trophy-outline" size={s} color={c} />;
+            case 'HealthImport':
+              return <Ionicons name="heart-outline" size={s} color={c} />; // ✅
             case 'Profile':
               return <Ionicons name="person-outline" size={s} color={c} />;
-              case 'Recommendations':
-  return <Ionicons name="sparkles-outline" size={s} color={c} />;
             default:
               return <Ionicons name="ellipse-outline" size={s} color={c} />;
           }
@@ -243,6 +246,7 @@ export default function DrawerNavigator() {
       <Drawer.Screen name="History" component={HistoryScreen} options={{ title: 'История' }} />
       <Drawer.Screen name="Analytics" component={AnalyticsScreen} options={{ title: 'Аналитика' }} />
       <Drawer.Screen name="Achievements" component={AchievementsScreen} options={{ title: 'Достижения' }} />
+      <Drawer.Screen name="HealthImport" component={HealthImportScreen} options={{ title: 'Health Connect' }} />
       <Drawer.Screen name="Profile" component={ProfileScreen} options={{ title: 'Профиль' }} />
     </Drawer.Navigator>
   );

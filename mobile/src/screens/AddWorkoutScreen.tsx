@@ -1,14 +1,13 @@
-// mobile/src/screens/AddWorkoutScreen.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Animated,
+  ActivityIndicator,
   Dimensions,
-  Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,7 +15,7 @@ import {
   View,
   useColorScheme,
 } from "react-native";
-
+import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../api/client";
 import { getAchievements } from "../api/achievementsApi";
 
@@ -60,13 +59,14 @@ function makePalette(isDark: boolean) {
     card: isDark ? "#121625" : "#FFFFFF",
     text: isDark ? "#E9ECF5" : "#121722",
     subtext: isDark ? "#A9B1C7" : "#5C667A",
-    border: isDark ? "rgba(255,255,255,0.08)" : "rgba(16,24,40,0.08)",
+    border: isDark ? "rgba(255,255,255,0.10)" : "rgba(16,24,40,0.10)",
     primary: "#2D6BFF",
+    success: "#1F7A2E",
     danger: "#E5484D",
     inputBg: isDark ? "rgba(255,255,255,0.06)" : "#F2F4F7",
     chipBg: isDark ? "rgba(255,255,255,0.06)" : "#EEF2F6",
-    successBg: isDark ? "rgba(46,125,50,0.18)" : "rgba(46,125,50,0.12)",
-    successText: isDark ? "#7CF08D" : "#1F7A2E",
+    softPrimary: isDark ? "rgba(45,107,255,0.16)" : "rgba(45,107,255,0.10)",
+    softSuccess: isDark ? "rgba(31,122,46,0.18)" : "rgba(31,122,46,0.10)",
   };
 }
 
@@ -78,93 +78,80 @@ function isoNow() {
   return new Date().toISOString();
 }
 
-function formatLocal(dtIso: string) {
-  const d = new Date(dtIso);
-  if (Number.isNaN(d.getTime())) return dtIso;
+function formatLocalShort(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
-    d.getMinutes(),
-  )}`;
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} • ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
 }
 
-function Card({
+function minutesToSecondsStr(minStr: string) {
+  const m = Number(minStr);
+  if (!Number.isFinite(m) || m < 0) return undefined;
+  return Math.round(m * 60);
+}
+
+function PrimaryButton({
   title,
   subtitle,
-  right,
   onPress,
   palette,
-  active,
+  loading,
+  disabled,
 }: {
   title: string;
   subtitle?: string;
-  right?: React.ReactNode;
-  onPress?: () => void;
+  onPress: () => void;
   palette: ReturnType<typeof makePalette>;
-  active?: boolean;
+  loading?: boolean;
+  disabled?: boolean;
 }) {
-  const body = (
-    <View
-      style={[
-        styles.card,
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        styles.primaryBtn,
         {
-          backgroundColor: palette.card,
-          borderColor: active ? "rgba(45,107,255,0.55)" : palette.border,
+          backgroundColor: palette.primary,
+          opacity: disabled || loading ? 0.55 : pressed ? 0.86 : 1,
         },
       ]}
     >
       <View style={{ flex: 1 }}>
-        <Text
-          style={[styles.cardTitle, { color: palette.text }]}
-          numberOfLines={1}
-        >
-          {title}
-        </Text>
-        {subtitle ? (
-          <Text
-            style={[styles.cardSubtitle, { color: palette.subtext }]}
-            numberOfLines={2}
-          >
-            {subtitle}
-          </Text>
-        ) : null}
+        <Text style={styles.primaryBtnTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.primaryBtnSub}>{subtitle}</Text> : null}
       </View>
-      {right ?? (
-        <Text style={[styles.chevron, { color: palette.subtext }]}>{"›"}</Text>
-      )}
-    </View>
-  );
-
-  if (!onPress) return body;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
-    >
-      {body}
+      {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.chevWhite}>›</Text>}
     </Pressable>
   );
 }
 
-function Pill({
-  text,
+function SecondaryButton({
+  title,
+  onPress,
   palette,
 }: {
-  text: string;
+  title: string;
+  onPress: () => void;
   palette: ReturnType<typeof makePalette>;
 }) {
   return (
-    <View
-      style={[
-        styles.pill,
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.secondaryBtn,
         {
+          backgroundColor: palette.inputBg,
           borderColor: palette.border,
-          backgroundColor: "rgba(45,107,255,0.12)",
+          opacity: pressed ? 0.86 : 1,
         },
       ]}
     >
-      <Text style={[styles.pillText, { color: palette.primary }]}>{text}</Text>
-    </View>
+      <Text style={[styles.secondaryBtnText, { color: palette.text }]}>{title}</Text>
+    </Pressable>
   );
 }
 
@@ -184,9 +171,7 @@ function FieldInput({
       <View style={{ marginBottom: 12 }}>
         <Text style={[styles.label, { color: palette.subtext }]}>
           {field.label}
-          {field.required ? (
-            <Text style={{ color: palette.danger }}> *</Text>
-          ) : null}
+          {field.required ? <Text style={{ color: palette.danger }}> *</Text> : null}
         </Text>
 
         <View style={styles.chipRow}>
@@ -196,22 +181,16 @@ function FieldInput({
               <Pressable
                 key={opt.value}
                 onPress={() => onChange(opt.value)}
-                style={[
+                style={({ pressed }) => [
                   styles.chip,
                   {
                     borderColor: active ? palette.primary : palette.border,
-                    backgroundColor: active
-                      ? "rgba(45,107,255,0.14)"
-                      : palette.chipBg,
+                    backgroundColor: active ? palette.softPrimary : palette.chipBg,
+                    opacity: pressed ? 0.86 : 1,
                   },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.chipText,
-                    { color: active ? palette.primary : palette.text },
-                  ]}
-                >
+                <Text style={[styles.chipText, { color: active ? palette.primary : palette.text }]}>
                   {opt.label}
                 </Text>
               </Pressable>
@@ -223,295 +202,206 @@ function FieldInput({
   }
 
   const keyboardType = field.type === "number" ? "numeric" : "default";
-  const placeholder = field.placeholder ?? "";
-
   return (
     <View style={{ marginBottom: 12 }}>
       <Text style={[styles.label, { color: palette.subtext }]}>
         {field.label}
         {field.unit ? ` (${field.unit})` : ""}
-        {field.required ? (
-          <Text style={{ color: palette.danger }}> *</Text>
-        ) : null}
+        {field.required ? <Text style={{ color: palette.danger }}> *</Text> : null}
       </Text>
 
       <TextInput
         value={value}
-        onChangeText={(v) =>
-          onChange(field.type === "number" ? clampNumStr(v) : v)
-        }
-        placeholder={placeholder}
+        onChangeText={(v) => onChange(field.type === "number" ? clampNumStr(v) : v)}
+        placeholder={field.placeholder ?? ""}
         placeholderTextColor={palette.subtext}
         keyboardType={keyboardType as any}
         style={[
           styles.input,
-          {
-            backgroundColor: palette.inputBg,
-            borderColor: palette.border,
-            color: palette.text,
-          },
+          { backgroundColor: palette.inputBg, borderColor: palette.border, color: palette.text },
         ]}
       />
     </View>
   );
 }
 
-/**
- * Конфетти без библиотек:
- * набор кусочков, которые разлетаются вниз + вращение + fade out
- */
-function ConfettiBurst({ show }: { show: boolean }) {
-  const { width } = Dimensions.get("window");
-  const pieces = useRef(
-    Array.from({ length: 26 }).map((_, idx) => {
-      const x = Math.random() * (Math.min(width, 420) - 40) + 20; // внутри карточки
-      const size = 6 + Math.random() * 8;
-      const delay = Math.random() * 260;
-      const drift = (Math.random() - 0.5) * 90;
-      const fall = 220 + Math.random() * 140;
-
-      return {
-        key: `p_${idx}`,
-        x,
-        size,
-        delay,
-        drift,
-        fall,
-        y: new Animated.Value(-30),
-        r: new Animated.Value(0),
-        o: new Animated.Value(0),
-      };
-    }),
-  ).current;
-
-  useEffect(() => {
-    if (!show) return;
-
-    pieces.forEach((p) => {
-      p.y.setValue(-30);
-      p.r.setValue(0);
-      p.o.setValue(0);
-
-      Animated.parallel([
-        Animated.timing(p.o, {
-          toValue: 1,
-          duration: 120,
-          useNativeDriver: true,
-        }),
-        Animated.sequence([
-          Animated.delay(p.delay),
-          Animated.timing(p.y, {
-            toValue: p.fall,
-            duration: 1200,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.delay(p.delay),
-          Animated.timing(p.r, {
-            toValue: 1,
-            duration: 1200,
-            easing: Easing.linear,
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.delay(p.delay + 760),
-          Animated.timing(p.o, {
-            toValue: 0,
-            duration: 520,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]).start();
-    });
-  }, [show, pieces]);
-
-  // цвета под “конфетти”
-  const colors = [
-    "#2D6BFF",
-    "#7CF08D",
-    "#FFD166",
-    "#EF476F",
-    "#06D6A0",
-    "#8B5CF6",
-  ];
-
+function BottomSheet({
+  visible,
+  onClose,
+  palette,
+  title,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  palette: ReturnType<typeof makePalette>;
+  title: string;
+  children: React.ReactNode;
+}) {
+  const { height } = Dimensions.get("window");
   return (
-    <View pointerEvents="none" style={styles.confettiLayer}>
-      {pieces.map((p, idx) => {
-        const rotate = p.r.interpolate({
-          inputRange: [0, 1],
-          outputRange: ["0deg", `${360 + Math.random() * 720}deg`],
-        });
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.sheetOverlay} onPress={onClose} />
+      <View
+        style={[
+          styles.sheet,
+          {
+            maxHeight: Math.min(680, Math.round(height * 0.84)),
+            backgroundColor: palette.card,
+            borderColor: palette.border,
+          },
+        ]}
+      >
+        <View style={[styles.sheetHeader, { borderColor: palette.border }]}>
+          <Text style={[styles.sheetTitle, { color: palette.text }]}>{title}</Text>
+          <Pressable onPress={onClose} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+            <Text style={[styles.sheetClose, { color: palette.subtext }]}>✕</Text>
+          </Pressable>
+        </View>
 
-        return (
-          <Animated.View
-            key={p.key}
-            style={{
-              position: "absolute",
-              left: p.x,
-              top: 0,
-              width: p.size,
-              height: p.size * 1.6,
-              borderRadius: 3,
-              backgroundColor: colors[idx % colors.length],
-              opacity: p.o,
-              transform: [
-                { translateY: p.y },
-                {
-                  translateX: p.y.interpolate({
-                    inputRange: [-30, p.fall],
-                    outputRange: [0, p.drift],
-                  }),
-                },
-                { rotate },
-              ],
-            }}
-          />
-        );
-      })}
-    </View>
+        {children}
+      </View>
+    </Modal>
   );
 }
 
 export default function AddWorkoutScreen({ navigation, route }: any) {
   const scheme = useColorScheme();
   const palette = useMemo(() => makePalette(scheme === "dark"), [scheme]);
+
   const prefill = route?.params?.prefill ?? null;
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [items, setItems] = useState<ActivityType[]>([]);
   const itemsRef = useRef<ActivityType[]>([]);
   const [selected, setSelected] = useState<ActivityType | null>(null);
 
   const [startedAtIso, setStartedAtIso] = useState<string>(isoNow());
-  const [durationSec, setDurationSec] = useState<string>("");
+  const [durationMin, setDurationMin] = useState<string>(""); // UX: минуты, не секунды
   const [notes, setNotes] = useState<string>("");
-
   const [values, setValues] = useState<Record<string, string>>({});
+
   const fields = (selected?.fieldsSchema?.fields ?? []) as Field[];
 
-  const [toastVisible, setToastVisible] = useState(false);
-  const [grantedTitles, setGrantedTitles] = useState<string[]>([]);
-  const [confettiOn, setConfettiOn] = useState(false);
+  // Activity picker UX
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [recentIds, setRecentIds] = useState<string[]>([]);
 
-  const load = async () => {
-    setLoading(true);
+  // Save UX
+  const [saving, setSaving] = useState(false);
+
+  // Success sheet (achievements)
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [grantedTitles, setGrantedTitles] = useState<string[]>([]);
+
+  const initFormForActivity = useCallback((a: ActivityType) => {
+    const next: Record<string, string> = {};
+    (a.fieldsSchema?.fields ?? []).forEach((f: any) => (next[f.key] = ""));
+    setValues(next);
+  }, []);
+
+  const applyPrefillIfAny = useCallback(
+    (list: ActivityType[]) => {
+      if (!prefill) return;
+      const act = list.find((a) => a.id === prefill.activityTypeId);
+      if (!act) return;
+
+      setSelected(act);
+      const next: Record<string, string> = {};
+      (act.fieldsSchema?.fields ?? []).forEach((f: any) => (next[f.key] = ""));
+      (prefill.metrics ?? []).forEach((m: any) => {
+        next[m.metricKey] = String(m.valueNum);
+      });
+      setValues(next);
+
+      if (prefill.durationSec != null) setDurationMin(String(Math.round(Number(prefill.durationSec) / 60)));
+      setNotes(prefill.notes ?? "");
+      setStartedAtIso(isoNow());
+
+      // очистим param, чтобы не применять повторно
+      navigation?.setParams?.({ prefill: null });
+    },
+    [navigation, prefill]
+  );
+
+  const load = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    if (mode === "initial") setLoading(true);
+    if (mode === "refresh") setRefreshing(true);
+
     try {
       const res = await api.get("/activities");
       const list: ActivityType[] = res?.data?.items ?? [];
       setItems(list);
       itemsRef.current = list;
+
+      // если зашли с prefill — применим
+      applyPrefillIfAny(list);
     } catch (e: any) {
       Alert.alert("Ошибка", e?.message ?? "Не удалось загрузить активности");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [applyPrefillIfAny]);
 
-  useEffect(() => {
-    (async () => {
-      await load();
+  // ✅ авто-загрузка (без кнопки)
+  useFocusEffect(
+    useCallback(() => {
+      load("initial");
+    }, [load])
+  );
 
-      if (prefill) {
-        const act = (itemsRef.current ?? []).find(
-          (a) => a.id === prefill.activityTypeId,
-        );
-        if (act) {
-          setSelected(act);
-
-          const next: Record<string, string> = {};
-          (act.fieldsSchema?.fields ?? []).forEach(
-            (f: any) => (next[f.key] = ""),
-          );
-
-          (prefill.metrics ?? []).forEach((m: any) => {
-            next[m.metricKey] = String(m.valueNum);
-          });
-
-          setValues(next);
-          setDurationSec(
-            prefill.durationSec != null ? String(prefill.durationSec) : "",
-          );
-          setNotes(prefill.notes ?? "");
-          setStartedAtIso(isoNow());
-        }
-
-        navigation.setParams({ prefill: null });
-      }
-    })().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefill]);
-
-  const initFormForActivity = (a: ActivityType) => {
-    const next: Record<string, string> = {};
-    (a.fieldsSchema?.fields ?? []).forEach((f: any) => {
-      next[f.key] = "";
-    });
-    setValues(next);
-  };
-
-  const onPick = (a: ActivityType) => {
+  const pickActivity = (a: ActivityType) => {
     setSelected(a);
     initFormForActivity(a);
     setStartedAtIso(isoNow());
-    setDurationSec("");
+    setDurationMin("");
     setNotes("");
+    setPickerOpen(false);
+
+    // recent (в рамках сессии — без стораджа)
+    setRecentIds((prev) => {
+      const next = [a.id, ...prev.filter((x) => x !== a.id)];
+      return next.slice(0, 6);
+    });
   };
 
-  const onBackToList = () => {
-    setSelected(null);
-    setValues({});
-    setDurationSec("");
-    setNotes("");
-  };
-
-  const clearInputsKeepActivity = () => {
-    if (selected) initFormForActivity(selected);
-    setStartedAtIso(isoNow());
-    setDurationSec("");
-    setNotes("");
-  };
-
-  const setField = (key: string, v: string) =>
-    setValues((prev) => ({ ...prev, [key]: v }));
+  const setField = (key: string, v: string) => setValues((prev) => ({ ...prev, [key]: v }));
 
   const validate = () => {
-    if (!selected) return "Не выбрана активность";
-
+    if (!selected) return "Выбери активность";
     const startedAt = new Date(startedAtIso);
     if (Number.isNaN(startedAt.getTime())) return "Дата/время некорректны";
 
-    const dur = durationSec.trim();
-    if (dur) {
-      const n = Number(dur);
-      if (Number.isNaN(n) || n < 0)
-        return "Длительность должна быть числом (секунды)";
+    if (durationMin.trim()) {
+      const n = Number(durationMin.trim());
+      if (!Number.isFinite(n) || n < 0) return "Длительность должна быть числом (минуты)";
+      if (n > 24 * 60) return "Слишком большая длительность";
     }
 
     for (const f of fields) {
       const v = (values[f.key] ?? "").trim();
-
       if (f.required && !v) return `${f.label}: обязательное поле`;
-
       if (f.type === "number" && v) {
         const n = Number(v);
         if (Number.isNaN(n)) return `${f.label}: должно быть числом`;
-        if (typeof f.min === "number" && n < f.min)
-          return `${f.label}: минимум ${f.min}`;
-        if (typeof f.max === "number" && n > f.max)
-          return `${f.label}: максимум ${f.max}`;
+        if (typeof f.min === "number" && n < f.min) return `${f.label}: минимум ${f.min}`;
+        if (typeof f.max === "number" && n > f.max) return `${f.label}: максимум ${f.max}`;
       }
-
-      if (f.type === "select" && f.required && !v)
-        return `${f.label}: выбери значение`;
+      if (f.type === "select" && f.required && !v) return `${f.label}: выбери значение`;
     }
-
     return null;
+  };
+
+  const clearInputsKeepActivity = () => {
+    if (!selected) return;
+    initFormForActivity(selected);
+    setStartedAtIso(isoNow());
+    setDurationMin("");
+    setNotes("");
   };
 
   const onSave = async () => {
@@ -533,50 +423,58 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
         })
         .filter(Boolean) as { key: string; value: number; unit?: string }[];
 
-      const dur = durationSec.trim();
-      const durNum = dur ? Number(dur) : undefined;
+      // text/select тоже могут быть важны — если бэк их поддерживает, добавим как metadata позже.
+      const durSec = minutesToSecondsStr(durationMin.trim());
 
       const body = {
         activityTypeId: selected.id,
         startedAt: startedAtIso,
-        durationSec: durNum,
+        durationSec: durSec,
         notes: notes.trim() || undefined,
         metrics,
       };
 
       const res = await api.post("/workouts", body);
-      const granted: string[] = res?.data?.grantedAchievements ?? [];
 
+      const granted: string[] = res?.data?.grantedAchievements ?? [];
       clearInputsKeepActivity();
 
       if (granted.length > 0) {
         try {
           const all = await getAchievements();
-          const map = new Map(
-            (all.items ?? []).map((a: any) => [a.code, a.title]),
-          );
-          const titles = granted.map((c) => map.get(c) ?? c);
-          setGrantedTitles(titles);
+          const map = new Map((all.items ?? []).map((a: any) => [a.code, a.title]));
+          setGrantedTitles(granted.map((c) => map.get(c) ?? c));
         } catch {
           setGrantedTitles(granted);
         }
-
-        setToastVisible(true);
-        setConfettiOn(true);
-        // выключим конфетти чуть раньше закрытия/сброса
-        setTimeout(() => setConfettiOn(false), 1600);
+        setSuccessOpen(true);
       } else {
+        // лёгкий UX: если нет достижений — просто остаёмся на экране (всё уже очищено)
       }
     } catch (e: any) {
-      const msg =
-        e?.response?.data?.message ??
-        e?.message ??
-        "Не удалось сохранить тренировку";
+      const msg = e?.response?.data?.message ?? e?.message ?? "Не удалось сохранить тренировку";
       Alert.alert("Ошибка", String(msg));
     } finally {
       setSaving(false);
     }
   };
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const base = q
+      ? items.filter(
+          (a) =>
+            a.name.toLowerCase().includes(q) ||
+            a.code.toLowerCase().includes(q)
+        )
+      : items;
+
+    // Поднимем recent вверх (приятный UX)
+    const recentSet = new Set(recentIds);
+    const recents = base.filter((a) => recentSet.has(a.id));
+    const rest = base.filter((a) => !recentSet.has(a.id));
+    return [...recents, ...rest];
+  }, [items, recentIds, search]);
 
   return (
     <KeyboardAvoidingView
@@ -586,188 +484,107 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => load("refresh")}
+            tintColor={palette.primary}
+          />
+        }
       >
+        {/* Header */}
         <View style={{ marginBottom: 12 }}>
-          <Text style={[styles.pageTitle, { color: palette.text }]}>
-            Добавить тренировку
-          </Text>
+          <Text style={[styles.pageTitle, { color: palette.text }]}>Добавить тренировку</Text>
           <Text style={[styles.pageSubtitle, { color: palette.subtext }]}>
-            Быстрое добавление: выбери активность и заполни параметры.
+            Выбери активность и быстро заполни параметры.
           </Text>
         </View>
 
-        {!selected ? (
-          <>
-            <View
-              style={[
-                styles.section,
-                { backgroundColor: palette.card, borderColor: palette.border },
-              ]}
-            >
-              <Text style={[styles.sectionTitle, { color: palette.text }]}>
-                Виды активности
-              </Text>
-              <Text
-                style={[styles.sectionSubtitle, { color: palette.subtext }]}
-              >
-                {loading
-                  ? "Загружаю…"
-                  : "Нажми на вид спорта, чтобы заполнить тренировку."}
-              </Text>
-            </View>
+        {/* Activity selector */}
+        <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <Text style={[styles.sectionTitle, { color: palette.text }]}>Активность</Text>
+          <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
+            {selected ? "Можно сменить активность в любой момент" : "Нажми, чтобы выбрать"}
+          </Text>
 
-            <View style={{ gap: 10 }}>
-              {items.map((a) => {
-                const count = a.fieldsSchema?.fields?.length ?? 0;
-                return (
-                  <Card
-                    key={a.id}
-                    title={a.name}
-                    subtitle={`${a.code} • полей: ${count}`}
-                    palette={palette}
-                    onPress={() => onPick(a)}
-                  />
-                );
-              })}
-            </View>
-          </>
-        ) : (
-          <>
-            <View
-              style={[
-                styles.section,
+          <View style={{ marginTop: 12 }}>
+            <Pressable
+              onPress={() => setPickerOpen(true)}
+              style={({ pressed }) => [
+                styles.pickRow,
                 {
-                  backgroundColor: palette.card,
+                  backgroundColor: palette.inputBg,
                   borderColor: palette.border,
-                  paddingBottom: 12,
+                  opacity: pressed ? 0.86 : 1,
                 },
               ]}
             >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.sectionTitle, { color: palette.text }]}>
-                    {selected.name}
-                  </Text>
-                  <Text
-                    style={[styles.sectionSubtitle, { color: palette.subtext }]}
-                  >
-                    Заполни параметры тренировки
-                  </Text>
-                </View>
-                <Pill text={selected.code} palette={palette} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.pickTitle, { color: palette.text }]} numberOfLines={1}>
+                  {selected ? selected.name : loading ? "Загрузка…" : "Выбрать активность"}
+                </Text>
+                <Text style={[styles.pickSub, { color: palette.subtext }]} numberOfLines={1}>
+                  {selected ? selected.code : "Поиск по названию и коду"}
+                </Text>
               </View>
+              <Text style={[styles.chev, { color: palette.subtext }]}>›</Text>
+            </Pressable>
 
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  marginTop: 10,
-                }}
-              >
-                <Pressable
-                  onPress={onBackToList}
-                  style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-                >
-                  <Text style={[styles.link, { color: palette.primary }]}>
-                    ← выбрать другую
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={clearInputsKeepActivity}
-                  style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-                >
-                  <Text style={[styles.link, { color: palette.subtext }]}>
-                    сбросить поля
-                  </Text>
-                </Pressable>
+            {selected ? (
+              <View style={{ marginTop: 10, flexDirection: "row", gap: 10 }}>
+                <SecondaryButton title="Сменить" onPress={() => setPickerOpen(true)} palette={palette} />
+                <SecondaryButton title="Очистить поля" onPress={clearInputsKeepActivity} palette={palette} />
               </View>
-            </View>
+            ) : null}
+          </View>
+        </View>
 
-            <View
-              style={[
-                styles.section,
-                { backgroundColor: palette.card, borderColor: palette.border },
-              ]}
-            >
-              <Text style={[styles.sectionTitle, { color: palette.text }]}>
-                Основное
-              </Text>
-              <Text
-                style={[styles.sectionSubtitle, { color: palette.subtext }]}
-              >
-                Дата/время и заметки
+        {/* Form */}
+        {selected ? (
+          <>
+            <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <Text style={[styles.sectionTitle, { color: palette.text }]}>Основное</Text>
+              <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
+                Дата, длительность и заметки
               </Text>
 
               <View style={{ marginTop: 12 }}>
-                <Text style={[styles.label, { color: palette.subtext }]}>
-                  Дата и время
-                </Text>
+                <Text style={[styles.label, { color: palette.subtext }]}>Дата и время</Text>
+
                 <View
                   style={[
                     styles.readonlyRow,
-                    {
-                      backgroundColor: palette.inputBg,
-                      borderColor: palette.border,
-                    },
+                    { backgroundColor: palette.inputBg, borderColor: palette.border },
                   ]}
                 >
                   <Text style={[styles.readonlyText, { color: palette.text }]}>
-                    {formatLocal(startedAtIso)}
+                    {formatLocalShort(startedAtIso)}
                   </Text>
+
                   <Pressable
                     onPress={() => setStartedAtIso(isoNow())}
                     style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
                   >
-                    <Text
-                      style={[
-                        styles.readonlyAction,
-                        { color: palette.primary },
-                      ]}
-                    >
-                      сейчас
-                    </Text>
+                    <Text style={[styles.readonlyAction, { color: palette.primary }]}>сейчас</Text>
                   </Pressable>
                 </View>
 
-                <Text
-                  style={[
-                    styles.label,
-                    { color: palette.subtext, marginTop: 12 },
-                  ]}
-                >
-                  Длительность (сек)
+                <Text style={[styles.label, { color: palette.subtext, marginTop: 12 }]}>
+                  Длительность (мин)
                 </Text>
                 <TextInput
-                  value={durationSec}
-                  onChangeText={(v) => setDurationSec(clampNumStr(v))}
-                  placeholder="например 3600"
+                  value={durationMin}
+                  onChangeText={(v) => setDurationMin(clampNumStr(v))}
+                  placeholder="например 45"
                   placeholderTextColor={palette.subtext}
                   keyboardType="numeric"
                   style={[
                     styles.input,
-                    {
-                      backgroundColor: palette.inputBg,
-                      borderColor: palette.border,
-                      color: palette.text,
-                    },
+                    { backgroundColor: palette.inputBg, borderColor: palette.border, color: palette.text },
                   ]}
                 />
 
-                <Text
-                  style={[
-                    styles.label,
-                    { color: palette.subtext, marginTop: 12 },
-                  ]}
-                >
-                  Заметки
-                </Text>
+                <Text style={[styles.label, { color: palette.subtext, marginTop: 12 }]}>Заметки</Text>
                 <TextInput
                   value={notes}
                   onChangeText={setNotes}
@@ -776,36 +593,33 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
                   multiline
                   style={[
                     styles.textarea,
-                    {
-                      backgroundColor: palette.inputBg,
-                      borderColor: palette.border,
-                      color: palette.text,
-                    },
+                    { backgroundColor: palette.inputBg, borderColor: palette.border, color: palette.text },
                   ]}
                 />
               </View>
             </View>
 
-            <View
-              style={[
-                styles.section,
-                { backgroundColor: palette.card, borderColor: palette.border },
-              ]}
-            >
-              <Text style={[styles.sectionTitle, { color: palette.text }]}>
-                Параметры
-              </Text>
-              <Text
-                style={[styles.sectionSubtitle, { color: palette.subtext }]}
-              >
-                Поля берутся из schema активности
+            <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <Text style={[styles.sectionTitle, { color: palette.text }]}>Параметры</Text>
+              <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
+                Поля зависят от выбранной активности
               </Text>
 
               <View style={{ marginTop: 12 }}>
                 {fields.length === 0 ? (
-                  <Text style={{ color: palette.subtext, fontWeight: "700" }}>
-                    Для этой активности нет полей schema.
-                  </Text>
+                  <View
+                    style={[
+                      styles.emptyFields,
+                      { backgroundColor: palette.inputBg, borderColor: palette.border },
+                    ]}
+                  >
+                    <Text style={[styles.emptyFieldsTitle, { color: palette.text }]}>
+                      Нет параметров
+                    </Text>
+                    <Text style={[styles.emptyFieldsSub, { color: palette.subtext }]}>
+                      Для этой активности не задана схема полей — можно просто сохранить тренировку с заметкой.
+                    </Text>
+                  </View>
                 ) : (
                   fields.map((f) => (
                     <FieldInput
@@ -820,149 +634,154 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
               </View>
             </View>
 
-            <Pressable
+            <PrimaryButton
+              title={saving ? "Сохраняю…" : "Сохранить тренировку"}
+              subtitle="После сохранения поля очистятся"
               onPress={onSave}
+              palette={palette}
+              loading={saving}
               disabled={saving}
-              style={({ pressed }) => [
-                styles.primaryBtn,
-                {
-                  backgroundColor: palette.primary,
-                  opacity: saving ? 0.65 : pressed ? 0.85 : 1,
-                },
-              ]}
-            >
-              <Text style={styles.primaryBtnText}>
-                {saving ? "Сохраняю…" : "Сохранить тренировку"}
-              </Text>
-            </Pressable>
-
-            <View
-              style={[
-                styles.successHint,
-                {
-                  backgroundColor: palette.successBg,
-                  borderColor: palette.border,
-                },
-              ]}
-            >
-              <Text
-                style={[styles.successHintText, { color: palette.successText }]}
-              >
-                После сохранения поля очистятся, а активность останется
-                выбранной — удобно для быстрого ввода.
-              </Text>
-            </View>
+            />
 
             <View style={{ height: 18 }} />
           </>
-        )}
+        ) : null}
+
+        {!selected && !loading ? (
+          <View style={[styles.hintCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+            <Text style={[styles.hintTitle, { color: palette.text }]}>Совет</Text>
+            <Text style={[styles.hintText, { color: palette.subtext }]}>
+              Сначала выбери активность — затем появятся поля для ввода. Это ускоряет заполнение и уменьшает ошибки.
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
 
-      {/* Toast modal + confetti */}
-      <Modal
-        visible={toastVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setToastVisible(false)}
+      {/* Activity picker bottom sheet */}
+      <BottomSheet
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        palette={palette}
+        title="Выбор активности"
       >
-        <View style={styles.toastOverlay}>
-          <View
+        <View style={{ padding: 14 }}>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Поиск: бег, присед, swim, run…"
+            placeholderTextColor={palette.subtext}
             style={[
-              styles.toastCard,
-              { backgroundColor: palette.card, borderColor: palette.border },
+              styles.searchInput,
+              { backgroundColor: palette.inputBg, borderColor: palette.border, color: palette.text },
             ]}
-          >
-            {/* Конфетти поверх карточки */}
-            <ConfettiBurst show={confettiOn} />
+          />
 
-            {/* glow */}
-            <View
-              style={[
-                styles.toastGlow,
-                { backgroundColor: "rgba(45,107,255,0.16)" },
-              ]}
-            />
-            <View
-              style={[
-                styles.toastGlow2,
-                { backgroundColor: "rgba(124,240,141,0.12)" },
-              ]}
-            />
+          <Text style={[styles.sheetHint, { color: palette.subtext }]}>
+            {recentIds.length ? "Недавние сверху. Потяни вниз на главном экране для обновления." : "Начни вводить для поиска."}
+          </Text>
+        </View>
 
-            <Text style={[styles.toastTitle, { color: palette.text }]}>
-              🎉 Новое достижение!
+        <ScrollView contentContainerStyle={{ padding: 14, paddingTop: 0, gap: 10 }}>
+          {filtered.map((a) => {
+            const count = a.fieldsSchema?.fields?.length ?? 0;
+            const active = selected?.id === a.id;
+            return (
+              <Pressable
+                key={a.id}
+                onPress={() => pickActivity(a)}
+                style={({ pressed }) => [
+                  styles.activityCard,
+                  {
+                    backgroundColor: palette.card,
+                    borderColor: active ? "rgba(45,107,255,0.55)" : palette.border,
+                    opacity: pressed ? 0.88 : 1,
+                  },
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.activityTitle, { color: palette.text }]} numberOfLines={1}>
+                    {a.name}
+                  </Text>
+                  <Text style={[styles.activitySub, { color: palette.subtext }]} numberOfLines={1}>
+                    {a.code} • полей: {count}
+                  </Text>
+                </View>
+                <Text style={[styles.chev, { color: palette.subtext }]}>›</Text>
+              </Pressable>
+            );
+          })}
+
+          {!loading && filtered.length === 0 ? (
+            <View style={[styles.emptyFields, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
+              <Text style={[styles.emptyFieldsTitle, { color: palette.text }]}>Ничего не найдено</Text>
+              <Text style={[styles.emptyFieldsSub, { color: palette.subtext }]}>
+                Попробуй другое слово или код активности.
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={{ height: 10 }} />
+        </ScrollView>
+      </BottomSheet>
+
+      {/* Success sheet */}
+      <BottomSheet
+        visible={successOpen}
+        onClose={() => setSuccessOpen(false)}
+        palette={palette}
+        title="Готово!"
+      >
+        <View style={{ padding: 14 }}>
+          <View style={[styles.successBox, { backgroundColor: palette.softSuccess, borderColor: palette.border }]}>
+            <Text style={[styles.successTitle, { color: palette.success }]}>🎉 Новое достижение</Text>
+            <Text style={[styles.successSub, { color: palette.subtext }]}>
+              Ты открыл(а) {grantedTitles.length > 1 ? "несколько бейджей" : "бейдж"}:
             </Text>
-            <Text style={[styles.toastSubtitle, { color: palette.subtext }]}>
-              Ты открыл{grantedTitles.length > 1 ? " сразу несколько" : ""}{" "}
-              бейдж{grantedTitles.length > 1 ? "ей" : ""}.
-            </Text>
 
-            <View style={{ marginTop: 12, gap: 8 }}>
+            <View style={{ marginTop: 10, gap: 8 }}>
               {grantedTitles.map((t) => (
                 <View
                   key={t}
                   style={[
-                    styles.toastPill,
-                    {
-                      backgroundColor: palette.inputBg,
-                      borderColor: palette.border,
-                    },
+                    styles.successPill,
+                    { backgroundColor: palette.card, borderColor: palette.border },
                   ]}
                 >
-                  <Text
-                    style={[styles.toastPillText, { color: palette.text }]}
-                    numberOfLines={1}
-                  >
+                  <Text style={[styles.successPillText, { color: palette.text }]} numberOfLines={1}>
                     {t}
                   </Text>
                 </View>
               ))}
             </View>
 
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-              <Pressable
-                onPress={() => setToastVisible(false)}
-                style={[
-                  styles.toastBtn,
-                  {
-                    backgroundColor: palette.inputBg,
-                    borderColor: palette.border,
-                  },
-                ]}
-              >
-                <Text style={[styles.toastBtnText, { color: palette.text }]}>
-                  Ок
-                </Text>
-              </Pressable>
-
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+              <SecondaryButton title="Ок" onPress={() => setSuccessOpen(false)} palette={palette} />
               <Pressable
                 onPress={() => {
-                  setToastVisible(false);
+                  setSuccessOpen(false);
                   navigation?.navigate?.("Achievements");
                 }}
-                style={[
-                  styles.toastBtn,
+                style={({ pressed }) => [
+                  styles.goAchievements,
                   {
                     backgroundColor: palette.primary,
-                    borderColor: "transparent",
+                    opacity: pressed ? 0.86 : 1,
                   },
                 ]}
               >
-                <Text style={[styles.toastBtnText, { color: "#fff" }]}>
-                  Открыть
-                </Text>
+                <Text style={styles.goAchievementsText}>Открыть</Text>
               </Pressable>
             </View>
           </View>
         </View>
-      </Modal>
+      </BottomSheet>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingTop: 18 },
+  content: { padding: 16, paddingTop: 18, paddingBottom: 24 },
 
   pageTitle: { fontSize: 22, fontWeight: "900" },
   pageSubtitle: { marginTop: 6, fontSize: 13, fontWeight: "700" },
@@ -973,65 +792,41 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 14,
     ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "#000",
-          shadowOpacity: 0.06,
-          shadowRadius: 14,
-          shadowOffset: { width: 0, height: 8 },
-        }
+      ? { shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
       : { elevation: 1 }),
   },
   sectionTitle: { fontSize: 15.5, fontWeight: "900" },
   sectionSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: "700" },
 
-  card: {
-    borderRadius: 18,
+  pickRow: {
+    borderRadius: 16,
     borderWidth: 1,
-    padding: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "#000",
-          shadowOpacity: 0.06,
-          shadowRadius: 14,
-          shadowOffset: { width: 0, height: 8 },
-        }
-      : { elevation: 1 }),
+    gap: 10,
   },
-  cardTitle: { fontSize: 15.5, fontWeight: "900" },
-  cardSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: "700" },
-  chevron: { marginLeft: 12, fontSize: 22, fontWeight: "900" },
-
-  pill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  pillText: { fontSize: 12, fontWeight: "900" },
-
-  link: { fontSize: 13.5, fontWeight: "900" },
+  pickTitle: { fontSize: 15.5, fontWeight: "900" },
+  pickSub: { marginTop: 3, fontSize: 12.5, fontWeight: "700" },
 
   label: { fontSize: 12.5, fontWeight: "800", marginBottom: 6 },
-
   input: {
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === "ios" ? 12 : 10,
     fontSize: 15.5,
-    fontWeight: "700",
+    fontWeight: "800",
   },
-
   textarea: {
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 15,
-    fontWeight: "700",
-    minHeight: 92,
+    fontWeight: "800",
+    minHeight: 96,
     textAlignVertical: "top",
   },
 
@@ -1044,95 +839,105 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  readonlyText: { fontSize: 15.5, fontWeight: "800" },
+  readonlyText: { fontSize: 15.5, fontWeight: "900" },
   readonlyAction: { fontSize: 13.5, fontWeight: "900" },
 
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
-  chip: {
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  chipText: { fontSize: 13, fontWeight: "800" },
-
-  primaryBtn: { borderRadius: 16, paddingVertical: 14, alignItems: "center" },
-  primaryBtnText: { color: "#fff", fontSize: 15.5, fontWeight: "900" },
-
-  successHint: { marginTop: 10, borderRadius: 16, borderWidth: 1, padding: 12 },
-  successHintText: { fontSize: 12.5, fontWeight: "800", lineHeight: 18 },
-
-  toastOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
+  primaryBtn: {
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
+    gap: 10,
   },
-  toastCard: {
-    width: "100%",
-    maxWidth: 420,
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 14,
-    overflow: "hidden",
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "#000",
-          shadowOpacity: 0.18,
-          shadowRadius: 18,
-          shadowOffset: { width: 0, height: 12 },
-        }
-      : { elevation: 4 }),
-  },
+  primaryBtnTitle: { color: "#fff", fontSize: 15.5, fontWeight: "900" },
+  primaryBtnSub: { marginTop: 2, color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: "800" },
 
-  toastGlow: {
-    position: "absolute",
-    top: -90,
-    left: -60,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-  },
-  toastGlow2: {
-    position: "absolute",
-    top: -110,
-    right: -90,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-  },
-
-  toastTitle: { fontSize: 16, fontWeight: "900" },
-  toastSubtitle: {
-    marginTop: 6,
-    fontSize: 12.5,
-    fontWeight: "700",
-    lineHeight: 18,
-  },
-
-  toastPill: {
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  toastPillText: { fontSize: 13.5, fontWeight: "900" },
-
-  toastBtn: {
+  secondaryBtn: {
     flex: 1,
     borderRadius: 14,
     borderWidth: 1,
     paddingVertical: 12,
     alignItems: "center",
   },
-  toastBtnText: { fontSize: 14, fontWeight: "900" },
+  secondaryBtnText: { fontSize: 13.5, fontWeight: "900" },
 
-  confettiLayer: {
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
+  chip: { borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
+  chipText: { fontSize: 13, fontWeight: "900" },
+
+  emptyFields: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+  },
+  emptyFieldsTitle: { fontSize: 13.5, fontWeight: "900" },
+  emptyFieldsSub: { marginTop: 4, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
+
+  hintCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+  },
+  hintTitle: { fontSize: 14.5, fontWeight: "900" },
+  hintText: { marginTop: 6, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
+
+  // bottom sheet
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  sheet: {
     position: "absolute",
     left: 0,
     right: 0,
-    top: 0,
     bottom: 0,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
   },
+  sheetHeader: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sheetTitle: { fontSize: 14.5, fontWeight: "900" },
+  sheetClose: { fontSize: 16, fontWeight: "900" },
+
+  searchInput: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14.5,
+    fontWeight: "800",
+  },
+  sheetHint: { marginTop: 8, fontSize: 12.5, fontWeight: "700" },
+
+  activityCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  activityTitle: { fontSize: 15, fontWeight: "900" },
+  activitySub: { marginTop: 3, fontSize: 12.5, fontWeight: "700" },
+
+  // success
+  successBox: { borderRadius: 16, borderWidth: 1, padding: 12 },
+  successTitle: { fontSize: 14.5, fontWeight: "900" },
+  successSub: { marginTop: 4, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
+  successPill: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
+  successPillText: { fontSize: 13.5, fontWeight: "900" },
+  goAchievements: { flex: 1, borderRadius: 14, paddingVertical: 12, alignItems: "center" },
+  goAchievementsText: { color: "#fff", fontSize: 13.5, fontWeight: "900" },
+
+  chev: { fontSize: 24, fontWeight: "900" },
+  chevWhite: { color: "#fff", fontSize: 24, fontWeight: "900" },
 });

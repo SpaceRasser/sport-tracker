@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  ActivityIndicator,
   Animated,
   Dimensions,
   Easing,
@@ -8,21 +9,38 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
   useColorScheme,
-} from 'react-native';
+} from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 
-import { api } from '../api/client';
-import { getAchievements } from '../api/achievementsApi';
+import { api } from "../api/client";
+import { getAchievements } from "../api/achievementsApi";
 
 type Field =
-  | { key: string; label: string; type: 'number'; min?: number; max?: number; unit?: string; step?: number; required?: boolean }
-  | { key: string; label: string; type: 'text'; required?: boolean }
-  | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean };
+  | {
+      key: string;
+      label: string;
+      type: "number";
+      min?: number;
+      max?: number;
+      unit?: string;
+      step?: number;
+      required?: boolean;
+    }
+  | { key: string; label: string; type: "text"; required?: boolean }
+  | {
+      key: string;
+      label: string;
+      type: "select";
+      options: { label: string; value: string }[];
+      required?: boolean;
+    };
 
 type ActivityType = {
   id: string;
@@ -33,36 +51,53 @@ type ActivityType = {
 
 function makePalette(isDark: boolean) {
   return {
-    bg: isDark ? '#0B0D12' : '#F4F6FA',
-    card: isDark ? '#121625' : '#FFFFFF',
-    text: isDark ? '#E9ECF5' : '#121722',
-    subtext: isDark ? '#A9B1C7' : '#5C667A',
-    border: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,24,40,0.08)',
-    primary: '#2D6BFF',
-    danger: '#E5484D',
-    inputBg: isDark ? 'rgba(255,255,255,0.06)' : '#F2F4F7',
-    softPrimary: isDark ? 'rgba(45,107,255,0.16)' : 'rgba(45,107,255,0.10)',
+    bg: isDark ? "#0B0D12" : "#F4F6FA",
+    card: isDark ? "#121625" : "#FFFFFF",
+    text: isDark ? "#E9ECF5" : "#121722",
+    subtext: isDark ? "#A9B1C7" : "#5C667A",
+    border: isDark ? "rgba(255,255,255,0.10)" : "rgba(16,24,40,0.10)",
+    primary: "#2D6BFF",
+    danger: "#E5484D",
+    success: "#1F7A2E",
+    inputBg: isDark ? "rgba(255,255,255,0.06)" : "#F2F4F7",
+    softPrimary: isDark ? "rgba(45,107,255,0.16)" : "rgba(45,107,255,0.10)",
+    softSuccess: isDark ? "rgba(31,122,46,0.18)" : "rgba(31,122,46,0.10)",
   };
 }
 
 function clampNumStr(value: string) {
-  return value.replace(/[^\d.,-]/g, '').replace(',', '.');
-}
-
-function formatLocal(dtIso: string) {
-  const d = new Date(dtIso);
-  if (Number.isNaN(d.getTime())) return dtIso;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return value.replace(/[^\d.,-]/g, "").replace(",", ".");
 }
 
 function isoNow() {
   return new Date().toISOString();
 }
 
+function formatLocalShort(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} • ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
+
+function secToMinStr(sec?: number | null) {
+  if (sec == null) return "";
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n < 0) return "";
+  return String(Math.round(n / 60));
+}
+
+function minToSec(minStr: string) {
+  const m = Number(minStr);
+  if (!Number.isFinite(m) || m < 0) return undefined;
+  return Math.round(m * 60);
+}
+
 /** Конфетти без библиотек */
 function ConfettiBurst({ show }: { show: boolean }) {
-  const { width } = Dimensions.get('window');
+  const { width } = Dimensions.get("window");
   const pieces = useRef(
     Array.from({ length: 22 }).map((_, idx) => {
       const x = Math.random() * (Math.min(width, 420) - 40) + 20;
@@ -82,10 +117,10 @@ function ConfettiBurst({ show }: { show: boolean }) {
         r: new Animated.Value(0),
         o: new Animated.Value(0),
       };
-    }),
+    })
   ).current;
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!show) return;
 
     pieces.forEach((p) => {
@@ -121,21 +156,21 @@ function ConfettiBurst({ show }: { show: boolean }) {
     });
   }, [show, pieces]);
 
-  const colors = ['#2D6BFF', '#7CF08D', '#FFD166', '#EF476F', '#06D6A0', '#8B5CF6'];
+  const colors = ["#2D6BFF", "#7CF08D", "#FFD166", "#EF476F", "#06D6A0", "#8B5CF6"];
 
   return (
     <View pointerEvents="none" style={styles.confettiLayer}>
       {pieces.map((p, idx) => {
         const rotate = p.r.interpolate({
           inputRange: [0, 1],
-          outputRange: ['0deg', `${360 + Math.random() * 720}deg`],
+          outputRange: ["0deg", `${360 + Math.random() * 720}deg`],
         });
 
         return (
           <Animated.View
             key={p.key}
             style={{
-              position: 'absolute',
+              position: "absolute",
               left: p.x,
               top: 0,
               width: p.size,
@@ -145,7 +180,12 @@ function ConfettiBurst({ show }: { show: boolean }) {
               opacity: p.o,
               transform: [
                 { translateY: p.y },
-                { translateX: p.y.interpolate({ inputRange: [-30, p.fall], outputRange: [0, p.drift] }) },
+                {
+                  translateX: p.y.interpolate({
+                    inputRange: [-30, p.fall],
+                    outputRange: [0, p.drift],
+                  }),
+                },
                 { rotate },
               ],
             }}
@@ -156,7 +196,73 @@ function ConfettiBurst({ show }: { show: boolean }) {
   );
 }
 
-function FieldInput({
+function PrimaryButton({
+  title,
+  subtitle,
+  onPress,
+  palette,
+  loading,
+  disabled,
+}: {
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+  palette: ReturnType<typeof makePalette>;
+  loading?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        styles.primaryBtn,
+        {
+          backgroundColor: palette.primary,
+          opacity: disabled || loading ? 0.55 : pressed ? 0.86 : 1,
+        },
+      ]}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={styles.primaryBtnTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.primaryBtnSub}>{subtitle}</Text> : null}
+      </View>
+      {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.chevWhite}>›</Text>}
+    </Pressable>
+  );
+}
+
+function DangerButton({
+  title,
+  onPress,
+  palette,
+  loading,
+}: {
+  title: string;
+  onPress: () => void;
+  palette: ReturnType<typeof makePalette>;
+  loading?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={loading}
+      style={({ pressed }) => [
+        styles.dangerBtn,
+        {
+          borderColor: "rgba(229,72,77,0.35)",
+          backgroundColor: "rgba(229,72,77,0.12)",
+          opacity: loading ? 0.55 : pressed ? 0.86 : 1,
+        },
+      ]}
+    >
+      <Text style={[styles.dangerBtnText, { color: palette.danger }]}>{title}</Text>
+      {loading ? <ActivityIndicator color={palette.danger} /> : null}
+    </Pressable>
+  );
+}
+
+function NumberField({
   label,
   unit,
   value,
@@ -175,16 +281,16 @@ function FieldInput({
     <View style={{ marginBottom: 12 }}>
       <Text style={[styles.label, { color: palette.subtext }]}>
         {label}
-        {unit ? ` (${unit})` : ''}
+        {unit ? ` (${unit})` : ""}
         {required ? <Text style={{ color: palette.danger }}> *</Text> : null}
       </Text>
 
       <TextInput
         value={value}
         onChangeText={(v) => onChange(clampNumStr(v))}
+        keyboardType="numeric"
         placeholder=""
         placeholderTextColor={palette.subtext}
-        keyboardType="numeric"
         style={[
           styles.input,
           {
@@ -202,50 +308,49 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
   const { workoutId } = route.params as { workoutId: string };
 
   const scheme = useColorScheme();
-  const palette = useMemo(() => makePalette(scheme === 'dark'), [scheme]);
+  const palette = useMemo(() => makePalette(scheme === "dark"), [scheme]);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [activities, setActivities] = useState<ActivityType[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const [activity, setActivity] = useState<ActivityType | null>(null);
 
   const [startedAtIso, setStartedAtIso] = useState<string>(isoNow());
-  const [durationSec, setDurationSec] = useState<string>('');
-  const [notes, setNotes] = useState<string>('');
+  const [durationMin, setDurationMin] = useState<string>(""); // UX: минуты
+  const [notes, setNotes] = useState<string>("");
 
   const [values, setValues] = useState<Record<string, string>>({});
   const fields = (activity?.fieldsSchema?.fields ?? []) as Field[];
-  const numberFields = fields.filter((f) => f.type === 'number') as Extract<Field, { type: 'number' }>[];
+  const numberFields = fields.filter((f) => f.type === "number") as Extract<Field, { type: "number" }>[];
 
   const [toastVisible, setToastVisible] = useState(false);
   const [grantedTitles, setGrantedTitles] = useState<string[]>([]);
   const [confettiOn, setConfettiOn] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  const load = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    if (mode === "initial") setLoading(true);
+    if (mode === "refresh") setRefreshing(true);
+
     try {
-      const [wRes, aRes] = await Promise.all([
-        api.get(`/workouts/${workoutId}`),
-        api.get('/activities'),
-      ]);
+      const [wRes, aRes] = await Promise.all([api.get(`/workouts/${workoutId}`), api.get("/activities")]);
 
       const w = wRes?.data?.workout;
       const list: ActivityType[] = aRes?.data?.items ?? [];
-      setActivities(list);
 
-      if (!w) throw new Error('Тренировка не найдена');
+      if (!w) throw new Error("Тренировка не найдена");
 
       const act = list.find((x) => x.id === w.activityTypeId) ?? null;
       setActivity(act);
 
       setStartedAtIso(w.startedAt);
-      setDurationSec(w.durationSec != null ? String(w.durationSec) : '');
-      setNotes(w.notes ?? '');
+      setDurationMin(secToMinStr(w.durationSec));
+      setNotes(w.notes ?? "");
 
-      // prefill metrics -> values (только number поля)
       const next: Record<string, string> = {};
-      (act?.fieldsSchema?.fields ?? []).forEach((f: any) => (next[f.key] = ''));
+      (act?.fieldsSchema?.fields ?? []).forEach((f: any) => (next[f.key] = ""));
 
       (w.metrics ?? []).forEach((m: any) => {
         next[m.metricKey] = String(Number(m.valueNum));
@@ -253,35 +358,39 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
 
       setValues(next);
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message ?? 'Не удалось загрузить тренировку');
+      Alert.alert("Ошибка", e?.message ?? "Не удалось загрузить тренировку");
       navigation.goBack();
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [navigation, workoutId]);
 
-  useEffect(() => {
-    load();
-  }, [workoutId]);
+  useFocusEffect(
+    useCallback(() => {
+      load("initial");
+    }, [load])
+  );
 
   const validate = () => {
     const startedAt = new Date(startedAtIso);
-    if (Number.isNaN(startedAt.getTime())) return 'Дата/время некорректны';
+    if (Number.isNaN(startedAt.getTime())) return "Дата/время некорректны";
 
-    const dur = durationSec.trim();
+    const dur = durationMin.trim();
     if (dur) {
       const n = Number(dur);
-      if (Number.isNaN(n) || n < 0) return 'Длительность должна быть числом (секунды)';
+      if (Number.isNaN(n) || n < 0) return "Длительность должна быть числом (минуты)";
+      if (n > 24 * 60) return "Слишком большая длительность";
     }
 
     for (const f of numberFields) {
-      const v = (values[f.key] ?? '').trim();
+      const v = (values[f.key] ?? "").trim();
       if (f.required && !v) return `${f.label}: обязательное поле`;
       if (v) {
         const n = Number(v);
         if (Number.isNaN(n)) return `${f.label}: должно быть числом`;
-        if (typeof f.min === 'number' && n < f.min) return `${f.label}: минимум ${f.min}`;
-        if (typeof f.max === 'number' && n > f.max) return `${f.label}: максимум ${f.max}`;
+        if (typeof f.min === "number" && n < f.min) return `${f.label}: минимум ${f.min}`;
+        if (typeof f.max === "number" && n > f.max) return `${f.label}: максимум ${f.max}`;
       }
     }
 
@@ -290,7 +399,7 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
 
   const onSave = async () => {
     const err = validate();
-    if (err) return Alert.alert('Проверь форму', err);
+    if (err) return Alert.alert("Проверь форму", err);
     if (!activity) return;
 
     try {
@@ -298,7 +407,7 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
 
       const metrics = numberFields
         .map((f) => {
-          const raw = (values[f.key] ?? '').trim();
+          const raw = (values[f.key] ?? "").trim();
           if (!raw) return null;
           const n = Number(raw);
           if (!Number.isFinite(n)) return null;
@@ -306,8 +415,7 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
         })
         .filter(Boolean) as { key: string; value: number; unit?: string }[];
 
-      const dur = durationSec.trim();
-      const durNum = dur ? Number(dur) : undefined;
+      const durNum = durationMin.trim() ? minToSec(durationMin.trim()) : undefined;
 
       const body = {
         startedAt: startedAtIso,
@@ -323,8 +431,7 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
         try {
           const all = await getAchievements();
           const map = new Map((all.items ?? []).map((a: any) => [a.code, a.title]));
-          const titles = granted.map((c) => map.get(c) ?? c);
-          setGrantedTitles(titles);
+          setGrantedTitles(granted.map((c) => map.get(c) ?? c));
         } catch {
           setGrantedTitles(granted);
         }
@@ -336,33 +443,74 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
         navigation.goBack();
       }
     } catch (e: any) {
-      const msg = e?.response?.data?.message ?? e?.message ?? 'Не удалось сохранить изменения';
-      Alert.alert('Ошибка', String(msg));
+      const msg = e?.response?.data?.message ?? e?.message ?? "Не удалось сохранить изменения";
+      Alert.alert("Ошибка", String(msg));
     } finally {
       setSaving(false);
     }
   };
 
+  const onDelete = async () => {
+    Alert.alert(
+      "Удалить тренировку?",
+      "Действие необратимо. Тренировка исчезнет из истории и аналитики.",
+      [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Удалить",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setDeleting(true);
+              await api.delete(`/workouts/${workoutId}`);
+              navigation.goBack();
+            } catch (e: any) {
+              const msg =
+                e?.response?.data?.message ?? e?.message ?? "Не удалось удалить тренировку";
+              Alert.alert("Ошибка", String(msg));
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       style={[styles.screen, { backgroundColor: palette.bg }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => load("refresh")}
+            tintColor={palette.primary}
+          />
+        }
+      >
         <View style={{ marginBottom: 12 }}>
           <Text style={[styles.pageTitle, { color: palette.text }]}>Редактировать</Text>
           <Text style={[styles.pageSubtitle, { color: palette.subtext }]}>
-            {activity ? `${activity.name} (${activity.code})` : 'Загрузка…'}
+            {activity ? `${activity.name} • ${activity.code}` : loading ? "Загрузка…" : "—"}
           </Text>
         </View>
 
+        {/* Основное */}
         <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
           <Text style={[styles.sectionTitle, { color: palette.text }]}>Основное</Text>
+          <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
+            Дата, длительность и заметки
+          </Text>
 
           <View style={{ marginTop: 12 }}>
             <Text style={[styles.label, { color: palette.subtext }]}>Дата и время</Text>
             <View style={[styles.readonlyRow, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
-              <Text style={[styles.readonlyText, { color: palette.text }]}>{formatLocal(startedAtIso)}</Text>
+              <Text style={[styles.readonlyText, { color: palette.text }]}>{formatLocalShort(startedAtIso)}</Text>
               <Pressable
                 onPress={() => setStartedAtIso(isoNow())}
                 style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
@@ -371,20 +519,16 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
               </Pressable>
             </View>
 
-            <Text style={[styles.label, { color: palette.subtext, marginTop: 12 }]}>Длительность (сек)</Text>
+            <Text style={[styles.label, { color: palette.subtext, marginTop: 12 }]}>Длительность (мин)</Text>
             <TextInput
-              value={durationSec}
-              onChangeText={(v) => setDurationSec(clampNumStr(v))}
-              placeholder="например 3600"
+              value={durationMin}
+              onChangeText={(v) => setDurationMin(clampNumStr(v))}
+              placeholder="например 45"
               placeholderTextColor={palette.subtext}
               keyboardType="numeric"
               style={[
                 styles.input,
-                {
-                  backgroundColor: palette.inputBg,
-                  borderColor: palette.border,
-                  color: palette.text,
-                },
+                { backgroundColor: palette.inputBg, borderColor: palette.border, color: palette.text },
               ]}
             />
 
@@ -397,35 +541,37 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
               multiline
               style={[
                 styles.textarea,
-                {
-                  backgroundColor: palette.inputBg,
-                  borderColor: palette.border,
-                  color: palette.text,
-                },
+                { backgroundColor: palette.inputBg, borderColor: palette.border, color: palette.text },
               ]}
             />
           </View>
         </View>
 
+        {/* Метрики */}
         <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
           <Text style={[styles.sectionTitle, { color: palette.text }]}>Метрики</Text>
           <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
-            Редактируем числовые поля (как в AddWorkout)
+            Числовые параметры выбранной активности
           </Text>
 
           <View style={{ marginTop: 12 }}>
             {loading ? (
-              <Text style={{ color: palette.subtext, fontWeight: '800' }}>Загрузка…</Text>
+              <Text style={{ color: palette.subtext, fontWeight: "800" }}>Загрузка…</Text>
             ) : numberFields.length === 0 ? (
-              <Text style={{ color: palette.subtext, fontWeight: '800' }}>Для этой активности нет числовых метрик.</Text>
+              <View style={[styles.emptyBox, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
+                <Text style={[styles.emptyTitle, { color: palette.text }]}>Нет метрик</Text>
+                <Text style={[styles.emptySub, { color: palette.subtext }]}>
+                  Для этой активности не задано числовых параметров.
+                </Text>
+              </View>
             ) : (
               numberFields.map((f) => (
-                <FieldInput
+                <NumberField
                   key={f.key}
                   label={f.label}
                   unit={(f as any).unit}
                   required={f.required}
-                  value={values[f.key] ?? ''}
+                  value={values[f.key] ?? ""}
                   onChange={(v) => setValues((p) => ({ ...p, [f.key]: v }))}
                   palette={palette}
                 />
@@ -434,39 +580,34 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
           </View>
         </View>
 
-        <Pressable
+        <PrimaryButton
+          title={saving ? "Сохраняю…" : "Сохранить изменения"}
+          subtitle="История и аналитика обновятся"
           onPress={onSave}
-          disabled={saving}
-          style={({ pressed }) => [
-            styles.primaryBtn,
-            {
-              backgroundColor: palette.primary,
-              opacity: saving ? 0.65 : pressed ? 0.85 : 1,
-            },
-          ]}
-        >
-          <Text style={styles.primaryBtnText}>{saving ? 'Сохраняю…' : 'Сохранить изменения'}</Text>
-        </Pressable>
+          palette={palette}
+          loading={saving}
+          disabled={saving || loading}
+        />
+
+        <View style={{ height: 10 }} />
+
+        <DangerButton title="Удалить тренировку" onPress={onDelete} palette={palette} loading={deleting} />
 
         <View style={{ height: 18 }} />
       </ScrollView>
 
-      {/* toast + confetti */}
-      <Modal
-        visible={toastVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setToastVisible(false)}
-      >
+      {/* Success modal */}
+      <Modal visible={toastVisible} transparent animationType="fade" onRequestClose={() => setToastVisible(false)}>
         <View style={styles.toastOverlay}>
           <View style={[styles.toastCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
             <ConfettiBurst show={confettiOn} />
-            <View style={[styles.toastGlow, { backgroundColor: 'rgba(45,107,255,0.16)' }]} />
-            <View style={[styles.toastGlow2, { backgroundColor: 'rgba(124,240,141,0.12)' }]} />
+            <View style={[styles.toastGlow, { backgroundColor: "rgba(45,107,255,0.16)" }]} />
+            <View style={[styles.toastGlow2, { backgroundColor: "rgba(124,240,141,0.12)" }]} />
 
             <Text style={[styles.toastTitle, { color: palette.text }]}>🎉 Новое достижение!</Text>
             <Text style={[styles.toastSubtitle, { color: palette.subtext }]}>
-              Ты открыл{grantedTitles.length > 1 ? ' сразу несколько' : ''} бейдж{grantedTitles.length > 1 ? 'ей' : ''}.
+              Ты открыл{grantedTitles.length > 1 ? " сразу несколько" : ""}{" "}
+              бейдж{grantedTitles.length > 1 ? "ей" : ""}.
             </Text>
 
             <View style={{ marginTop: 12, gap: 8 }}>
@@ -479,7 +620,7 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
               ))}
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
               <Pressable
                 onPress={() => {
                   setToastVisible(false);
@@ -493,11 +634,11 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
               <Pressable
                 onPress={() => {
                   setToastVisible(false);
-                  navigation.navigate('Achievements');
+                  navigation.navigate("Achievements");
                 }}
-                style={[styles.toastBtn, { backgroundColor: palette.primary, borderColor: 'transparent' }]}
+                style={[styles.toastBtn, { backgroundColor: palette.primary, borderColor: "transparent" }]}
               >
-                <Text style={[styles.toastBtnText, { color: '#fff' }]}>Достижения</Text>
+                <Text style={[styles.toastBtnText, { color: "#fff" }]}>Достижения</Text>
               </Pressable>
             </View>
           </View>
@@ -509,43 +650,42 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: 16, paddingTop: 18 },
+  content: { padding: 16, paddingTop: 18, paddingBottom: 24 },
 
-  pageTitle: { fontSize: 22, fontWeight: '900' },
-  pageSubtitle: { marginTop: 6, fontSize: 13, fontWeight: '700' },
+  pageTitle: { fontSize: 22, fontWeight: "900" },
+  pageSubtitle: { marginTop: 6, fontSize: 13, fontWeight: "700" },
 
   section: {
     borderRadius: 18,
     borderWidth: 1,
     padding: 14,
     marginBottom: 14,
-    ...(Platform.OS === 'ios'
-      ? { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
       : { elevation: 1 }),
   },
-  sectionTitle: { fontSize: 15.5, fontWeight: '900' },
-  sectionSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: '700' },
+  sectionTitle: { fontSize: 15.5, fontWeight: "900" },
+  sectionSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: "700" },
 
-  label: { fontSize: 12.5, fontWeight: '800', marginBottom: 6 },
+  label: { fontSize: 12.5, fontWeight: "800", marginBottom: 6 },
 
   input: {
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    paddingVertical: Platform.OS === "ios" ? 12 : 10,
     fontSize: 15.5,
-    fontWeight: '700',
+    fontWeight: "800",
   },
-
   textarea: {
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 15,
-    fontWeight: '700',
-    minHeight: 92,
-    textAlignVertical: 'top',
+    fontWeight: "800",
+    minHeight: 96,
+    textAlignVertical: "top",
   },
 
   readonlyRow: {
@@ -553,60 +693,70 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  readonlyText: { fontSize: 15.5, fontWeight: '800' },
-  readonlyAction: { fontSize: 13.5, fontWeight: '900' },
+  readonlyText: { fontSize: 15.5, fontWeight: "900" },
+  readonlyAction: { fontSize: 13.5, fontWeight: "900" },
 
-  primaryBtn: { borderRadius: 16, paddingVertical: 14, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontSize: 15.5, fontWeight: '900' },
+  primaryBtn: {
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  primaryBtnTitle: { color: "#fff", fontSize: 15.5, fontWeight: "900" },
+  primaryBtnSub: { marginTop: 2, color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: "800" },
+  chevWhite: { color: "#fff", fontSize: 24, fontWeight: "900" },
+
+  dangerBtn: {
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dangerBtnText: { fontSize: 13.5, fontWeight: "900" },
+
+  emptyBox: { borderRadius: 16, borderWidth: 1, padding: 12 },
+  emptyTitle: { fontSize: 13.5, fontWeight: "900" },
+  emptySub: { marginTop: 4, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
 
   toastOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
     padding: 16,
   },
   toastCard: {
-    width: '100%',
+    width: "100%",
     maxWidth: 420,
     borderRadius: 18,
     borderWidth: 1,
     padding: 14,
-    overflow: 'hidden',
-    ...(Platform.OS === 'ios'
-      ? { shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 12 } }
+    overflow: "hidden",
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 12 } }
       : { elevation: 4 }),
   },
 
-  toastGlow: {
-    position: 'absolute',
-    top: -90,
-    left: -60,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-  },
-  toastGlow2: {
-    position: 'absolute',
-    top: -110,
-    right: -90,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-  },
+  toastGlow: { position: "absolute", top: -90, left: -60, width: 200, height: 200, borderRadius: 100 },
+  toastGlow2: { position: "absolute", top: -110, right: -90, width: 240, height: 240, borderRadius: 120 },
 
-  toastTitle: { fontSize: 16, fontWeight: '900' },
-  toastSubtitle: { marginTop: 6, fontSize: 12.5, fontWeight: '700', lineHeight: 18 },
+  toastTitle: { fontSize: 16, fontWeight: "900" },
+  toastSubtitle: { marginTop: 6, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
 
   toastPill: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
-  toastPillText: { fontSize: 13.5, fontWeight: '900' },
+  toastPillText: { fontSize: 13.5, fontWeight: "900" },
 
-  toastBtn: { flex: 1, borderRadius: 14, borderWidth: 1, paddingVertical: 12, alignItems: 'center' },
-  toastBtnText: { fontSize: 14, fontWeight: '900' },
+  toastBtn: { flex: 1, borderRadius: 14, borderWidth: 1, paddingVertical: 12, alignItems: "center" },
+  toastBtnText: { fontSize: 14, fontWeight: "900" },
 
-  confettiLayer: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+  confettiLayer: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
 });

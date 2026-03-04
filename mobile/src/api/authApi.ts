@@ -14,7 +14,10 @@ export async function authLogout(refreshToken: string) {
   await api.post('/auth/logout', { refreshToken });
 }
 
-// ✅ VK ID login (code + deviceId + codeVerifier + redirectUri)
+// ===========================
+// ✅ VK ID login (Android, PKCE)
+// ===========================
+// Теперь: code + codeVerifier + redirectUri
 export type VkIdLoginPayload = {
   code: string;
   deviceId: string;
@@ -23,11 +26,13 @@ export type VkIdLoginPayload = {
 };
 
 export async function authVkId(payload: VkIdLoginPayload) {
-  const res = await api.post('/auth/vk', payload);
-  return res.data as { user: any; accessToken: string; refreshToken: string };
+  const res = await api.post('/auth/vk-id/exchange', payload);
+  return res.data as { user: any; accessToken: string; refreshToken?: string | null };
 }
 
+// ===========================
 // ✅ SMS login (sms.ru) — request code
+// ===========================
 export type SmsRequestPayload = {
   phone: string;
 };
@@ -43,7 +48,9 @@ export async function authSmsRequest(payload: SmsRequestPayload) {
   return res.data as SmsRequestResponse;
 }
 
+// ===========================
 // ✅ SMS login (sms.ru) — verify code
+// ===========================
 export type SmsVerifyPayload = {
   phone: string;
   code: string;

@@ -1,5 +1,5 @@
 // mobile/src/screens/ProfileScreen.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -8,21 +8,26 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
   useColorScheme,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { getMe, updateMyProfile } from '../api/userApi';
 import { presignAvatar, updateMe } from '../api/meApi';
 import { useAuth } from '../auth/AuthContext';
 import { getAnalyticsSummary, AnalyticsSummary } from '../api/analyticsApi';
-import { useFocusEffect } from '@react-navigation/native';
 
 type Level = 'beginner' | 'intermediate' | 'advanced';
 type Gender = 'male' | 'female' | 'other' | 'unknown';
+
+const NOTIF_ENABLED_KEY = 'notif_enabled_v1';
 
 function clampNumStr(value: string) {
   return value.replace(/[^\d.,]/g, '').replace(',', '.');
@@ -61,10 +66,14 @@ function makePalette(isDark: boolean) {
     card: isDark ? '#121625' : '#FFFFFF',
     text: isDark ? '#E9ECF5' : '#121722',
     subtext: isDark ? '#A9B1C7' : '#5C667A',
-    border: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,24,40,0.08)',
+    border: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.10)',
     primary: '#2D6BFF',
     danger: '#E5484D',
     inputBg: isDark ? 'rgba(255,255,255,0.06)' : '#F2F4F7',
+    softPrimary: isDark ? 'rgba(45,107,255,0.16)' : 'rgba(45,107,255,0.10)',
+    softDanger: isDark ? 'rgba(229,72,77,0.18)' : 'rgba(229,72,77,0.10)',
+    success: '#20B26B',
+    softSuccess: isDark ? 'rgba(32,178,107,0.16)' : 'rgba(32,178,107,0.10)',
   };
 }
 
@@ -125,7 +134,7 @@ function Field({
             backgroundColor: palette.inputBg,
             color: palette.text,
             borderColor: palette.border,
-            opacity: editable ? 1 : 0.75,
+            opacity: editable ? 1 : 0.72,
           },
         ]}
       />
@@ -154,11 +163,12 @@ function ChipRow<T extends string>({
           <Pressable
             key={opt}
             onPress={() => onChange(opt)}
-            style={[
+            style={({ pressed }) => [
               styles.chip,
               {
                 borderColor: active ? palette.primary : palette.border,
-                backgroundColor: active ? 'rgba(45,107,255,0.14)' : 'transparent',
+                backgroundColor: active ? 'rgba(45,107,255,0.14)' : palette.inputBg,
+                opacity: pressed ? 0.86 : 1,
               },
             ]}
           >
@@ -168,6 +178,23 @@ function ChipRow<T extends string>({
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+function StatMini({
+  value,
+  label,
+  palette,
+}: {
+  value: string;
+  label: string;
+  palette: ReturnType<typeof makePalette>;
+}) {
+  return (
+    <View style={[styles.statCard, { borderColor: palette.border, backgroundColor: palette.inputBg }]}>
+      <Text style={[styles.statValue, { color: palette.text }]}>{value}</Text>
+      <Text style={[styles.statLabel, { color: palette.subtext }]}>{label}</Text>
     </View>
   );
 }
@@ -195,7 +222,12 @@ export default function ProfileScreen() {
   const [stats, setStats] = useState<AnalyticsSummary | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
-  const load = async () => {
+  // Notifications
+  const [notifToggle, setNotifToggle] = useState(true); // in-app preference
+  const [systemNotifGranted, setSystemNotifGranted] = useState<boolean | null>(null);
+  const [notifBusy, setNotifBusy] = useState(false);
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getMe();
@@ -216,32 +248,44 @@ export default function ProfileScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadStats = async () => {
-  setStatsLoading(true);
-  try {
-    const s = await getAnalyticsSummary();
-    setStats(s);
-  } catch {
-    setStats(null);
-  } finally {
-    setStatsLoading(false);
-  }
-};
+  const loadStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const s = await getAnalyticsSummary();
+      setStats(s);
+    } catch {
+      setStats(null);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
 
-  useEffect(() => {
-    load();
-    loadStats();
+  const loadNotifState = useCallback(async () => {
+    try {
+      const saved = await SecureStore.getItemAsync(NOTIF_ENABLED_KEY);
+      if (saved === '0') setNotifToggle(false);
+      else setNotifToggle(true);
+
+      const perms = await Notifications.getPermissionsAsync();
+      const granted = perms?.granted || perms?.status === 'granted';
+      setSystemNotifGranted(!!granted);
+    } catch {
+      // если что-то пошло не так — не ломаем UI
+      setSystemNotifGranted(null);
+    }
   }, []);
 
   useFocusEffect(
-  React.useCallback(() => {
-    loadStats();
-  }, []),
-);
+    useCallback(() => {
+      load().catch(() => {});
+      loadStats().catch(() => {});
+      loadNotifState().catch(() => {});
+    }, [load, loadStats, loadNotifState]),
+  );
 
-  const pickAndUploadAvatar = async () => {
+  const pickAndUploadAvatar = useCallback(async () => {
     try {
       setUploadingAvatar(true);
 
@@ -276,42 +320,38 @@ export default function ProfileScreen() {
       });
 
       if (!putRes.ok) {
-  const txt = await putRes.text().catch(() => '');
-  throw new Error(`Upload failed: ${putRes.status} ${txt}`);
-}
+        const txt = await putRes.text().catch(() => '');
+        throw new Error(`Upload failed: ${putRes.status} ${txt}`);
+      }
 
-
-      // сохраняем avatarUrl в users
       await updateMe({ avatarUrl: publicUrl });
-
-      // обновляем UI сразу (если вдруг Image кеширует — добавим версию)
       setAvatarUrl(`${publicUrl}?v=${Date.now()}`);
     } catch (e: any) {
       Alert.alert('Ошибка', e?.message ?? 'Не удалось обновить аватар');
     } finally {
       setUploadingAvatar(false);
     }
-  };
+  }, []);
 
-  const onSave = async () => {
+  const onSave = useCallback(async () => {
     try {
       setSaving(true);
 
-      // 1) сохраняем name в users
       const trimmedName = name.trim();
       await updateMe({ name: trimmedName || undefined });
 
-      // 2) сохраняем профиль
       const hStr = heightCm.trim();
       const wStr = weightKg.trim();
       const h = hStr ? Number(hStr) : undefined;
       const w = wStr ? Number(wStr) : undefined;
 
-      if (hStr && (Number.isNaN(h) || h < 50 || h > 260)) {
-        return Alert.alert('Проверьте рост', 'Рост должен быть числом от 50 до 260');
+      if (hStr && (Number.isNaN(h) || (h as number) < 50 || (h as number) > 260)) {
+        Alert.alert('Проверьте рост', 'Рост должен быть числом от 50 до 260');
+        return;
       }
-      if (wStr && (Number.isNaN(w) || w < 20 || w > 400)) {
-        return Alert.alert('Проверьте вес', 'Вес должен быть числом от 20 до 400');
+      if (wStr && (Number.isNaN(w) || (w as number) < 20 || (w as number) > 400)) {
+        Alert.alert('Проверьте вес', 'Вес должен быть числом от 20 до 400');
+        return;
       }
 
       await updateMyProfile({
@@ -320,13 +360,75 @@ export default function ProfileScreen() {
         heightCm: h,
         weightKg: w,
       });
+
       await load();
     } catch (e: any) {
       Alert.alert('Ошибка', e?.message ?? 'Не удалось сохранить профиль');
     } finally {
       setSaving(false);
     }
-  };
+  }, [name, heightCm, weightKg, gender, level, load]);
+
+  const onToggleNotifications = useCallback(
+    async (next: boolean) => {
+      setNotifBusy(true);
+      try {
+        setNotifToggle(next);
+        await SecureStore.setItemAsync(NOTIF_ENABLED_KEY, next ? '1' : '0');
+
+        // если включают — проверим системное разрешение
+        if (next) {
+          const perms = await Notifications.getPermissionsAsync();
+          const granted = perms?.granted || perms?.status === 'granted';
+
+          if (!granted) {
+            const req = await Notifications.requestPermissionsAsync();
+            const ok = req?.granted || req?.status === 'granted';
+            setSystemNotifGranted(!!ok);
+
+            if (!ok) {
+              Alert.alert(
+                'Уведомления',
+                'Разрешение не выдано. Можно включить в настройках телефона.',
+                [
+                  { text: 'Ок', style: 'cancel' },
+                  {
+                    text: 'Открыть настройки',
+                    onPress: () => Notifications.openSettings(),
+                  },
+                ],
+              );
+            }
+          } else {
+            setSystemNotifGranted(true);
+          }
+        }
+      } catch {
+        // fallback: просто оставляем UI
+      } finally {
+        setNotifBusy(false);
+      }
+    },
+    [],
+  );
+
+  const notifStatusText = useMemo(() => {
+    if (!notifToggle) return 'Выключены в приложении';
+    if (systemNotifGranted === false) return 'Нужно разрешение системы';
+    if (systemNotifGranted === true) return 'Включены';
+    return 'Статус неизвестен';
+  }, [notifToggle, systemNotifGranted]);
+
+  const notifStatusColor = useMemo(() => {
+    if (!notifToggle) return palette.subtext;
+    if (systemNotifGranted === false) return palette.danger;
+    if (systemNotifGranted === true) return palette.success;
+    return palette.subtext;
+  }, [notifToggle, systemNotifGranted, palette]);
+
+  const workouts7 = statsLoading ? '—' : String(stats?.workoutsLast7 ?? '—');
+  const prCount = statsLoading ? '—' : String(stats?.prCount ?? '—');
+  const achValue = statsLoading ? '—' : `${stats?.achievementsEarned ?? 0}/${stats?.achievementsTotal ?? 0}`;
 
   return (
     <KeyboardAvoidingView
@@ -352,23 +454,13 @@ export default function ProfileScreen() {
               ]}
             >
               {avatarUrl ? (
-                <Image
-                  source={{ uri: avatarUrl }}
-                  style={{ width: '100%', height: '100%' }}
-                  resizeMode="cover"
-                />
+                <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
               ) : (
                 <Text style={[styles.avatarText, { color: palette.primary }]}>{initials(name)}</Text>
               )}
 
-              {/* маленькая плашка “изменить” */}
-              <View
-                style={[
-                  styles.avatarBadge,
-                  { backgroundColor: 'rgba(0,0,0,0.42)' },
-                ]}
-              >
-                <Text style={styles.avatarBadgeText}>{uploadingAvatar ? '...' : '✎'}</Text>
+              <View style={[styles.avatarBadge, { backgroundColor: 'rgba(0,0,0,0.42)' }]}>
+                <Text style={styles.avatarBadgeText}>{uploadingAvatar ? '…' : '✎'}</Text>
               </View>
             </View>
           </Pressable>
@@ -378,27 +470,52 @@ export default function ProfileScreen() {
               {name?.trim() ? name : 'Пользователь'}
             </Text>
             <Text style={[styles.meta, { color: palette.subtext }]} numberOfLines={1}>
-              {formatPhone(phone)} {userId ? `• ID: ${userId.slice(0, 8)}` : ''}
+              {formatPhone(phone)}
+              {userId ? ` • ID ${userId.slice(0, 8)}` : ''}
             </Text>
           </View>
 
           <View style={{ alignItems: 'flex-end' }}>
-            <View
-              style={[
-                styles.badge,
-                { borderColor: palette.border, backgroundColor: 'rgba(45,107,255,0.10)' },
-              ]}
-            >
+            <View style={[styles.badge, { borderColor: palette.border, backgroundColor: palette.softPrimary }]}>
               <Text style={[styles.badgeText, { color: palette.primary }]}>{levelTitle(level)}</Text>
             </View>
           </View>
         </View>
 
-        <Section
-          title="Аккаунт"
-          subtitle="Имя и аватар сохраняются в users"
-          palette={palette}
-        >
+        {/* Notifications */}
+        <Section title="Уведомления" subtitle="Можно отключить в приложении или в настройках системы" palette={palette}>
+          <View style={[styles.row, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowTitle, { color: palette.text }]}>Получать уведомления</Text>
+              <Text style={[styles.rowSub, { color: notifStatusColor }]}>{notifStatusText}</Text>
+            </View>
+
+            <Switch
+              value={notifToggle}
+              onValueChange={(v) => onToggleNotifications(v)}
+              disabled={notifBusy}
+              trackColor={{ false: 'rgba(0,0,0,0.2)', true: 'rgba(45,107,255,0.35)' }}
+              thumbColor={notifToggle ? palette.primary : '#bbb'}
+            />
+          </View>
+
+          {notifToggle && systemNotifGranted === false ? (
+            <Pressable
+              onPress={() => Notifications.openSettings()}
+              style={({ pressed }) => [{ marginTop: 10, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <Text style={[styles.link, { color: palette.primary }]}>Открыть настройки уведомлений →</Text>
+            </Pressable>
+          ) : null}
+
+          <View style={[styles.hint, { backgroundColor: palette.softSuccess, borderColor: palette.border }]}>
+            <Text style={[styles.hintText, { color: palette.text }]}>
+              Мы отправляем только важное: коды входа и полезные напоминания (когда добавим).
+            </Text>
+          </View>
+        </Section>
+
+        <Section title="Аккаунт" subtitle="Имя и аватар" palette={palette}>
           <Field
             label="Имя"
             value={name}
@@ -406,13 +523,7 @@ export default function ProfileScreen() {
             placeholder="Как к вам обращаться"
             palette={palette}
           />
-          <Field
-            label="Телефон"
-            value={formatPhone(phone)}
-            placeholder="—"
-            palette={palette}
-            editable={false}
-          />
+          <Field label="Телефон" value={formatPhone(phone)} placeholder="—" palette={palette} editable={false} />
         </Section>
 
         <Section title="Параметры" subtitle="То, что влияет на аналитику" palette={palette}>
@@ -464,49 +575,21 @@ export default function ProfileScreen() {
         </Section>
 
         <Section title="Статистика" subtitle="Короткая сводка по прогрессу" palette={palette}>
-  <View style={styles.statsRow}>
-    <View style={[styles.statCard, { borderColor: palette.border, backgroundColor: palette.inputBg }]}>
-      <Text style={[styles.statValue, { color: palette.text }]}>
-        {statsLoading ? '…' : String(stats?.workoutsLast7 ?? '—')}
-      </Text>
-      <Text style={[styles.statLabel, { color: palette.subtext }]}>Трен. за 7 дней</Text>
-    </View>
+          <View style={styles.statsRow}>
+            <StatMini value={workouts7} label="Трен. за 7 дней" palette={palette} />
+            <StatMini value={prCount} label="PR" palette={palette} />
+            <StatMini value={achValue} label="Достижений" palette={palette} />
+          </View>
 
-    <View style={[styles.statCard, { borderColor: palette.border, backgroundColor: palette.inputBg }]}>
-      <Text style={[styles.statValue, { color: palette.text }]}>
-        {statsLoading ? '…' : String(stats?.prCount ?? '—')}
-      </Text>
-      <Text style={[styles.statLabel, { color: palette.subtext }]}>PR</Text>
-    </View>
-
-    <View style={[styles.statCard, { borderColor: palette.border, backgroundColor: palette.inputBg }]}>
-      <Text style={[styles.statValue, { color: palette.text }]}>
-        {statsLoading
-          ? '…'
-          : `${stats?.achievementsEarned ?? 0}/${stats?.achievementsTotal ?? 0}`}
-      </Text>
-      <Text style={[styles.statLabel, { color: palette.subtext }]}>Достижений</Text>
-    </View>
-  </View>
-
-  <View style={{ marginTop: 10 }}>
-    <Text style={[styles.smallMeta, { color: palette.subtext }]}>
-      Всего тренировок: {statsLoading ? '…' : String(stats?.workoutsTotal ?? '—')}
-    </Text>
-  </View>
-
-  <Pressable
-    onPress={loadStats}
-    style={({ pressed }) => [{ alignSelf: 'flex-start', marginTop: 8, opacity: pressed ? 0.75 : 1 }]}
-  >
-    <Text style={[styles.link, { color: palette.primary }]}>Обновить</Text>
-  </Pressable>
-</Section>
+          <Text style={[styles.smallMeta, { color: palette.subtext, marginTop: 10 }]}>
+            Всего тренировок: {statsLoading ? '…' : String(stats?.workoutsTotal ?? '—')}
+          </Text>
+        </Section>
 
         <Pressable
-          style={[
+          style={({ pressed }) => [
             styles.primaryBtn,
-            { backgroundColor: palette.primary, opacity: loading || saving ? 0.65 : 1 },
+            { backgroundColor: palette.primary, opacity: loading || saving ? 0.65 : pressed ? 0.88 : 1 },
           ]}
           onPress={onSave}
           disabled={loading || saving}
@@ -515,7 +598,10 @@ export default function ProfileScreen() {
         </Pressable>
 
         <Pressable
-          style={[styles.secondaryBtn, { borderColor: palette.border, backgroundColor: palette.card }]}
+          style={({ pressed }) => [
+            styles.secondaryBtn,
+            { borderColor: palette.border, backgroundColor: palette.card, opacity: pressed ? 0.9 : 1 },
+          ]}
           onPress={signOut}
         >
           <Text style={[styles.secondaryBtnText, { color: palette.danger }]}>Выйти</Text>
@@ -539,12 +625,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 14,
     ...(Platform.OS === 'ios'
-      ? {
-          shadowColor: '#000',
-          shadowOpacity: 0.08,
-          shadowRadius: 14,
-          shadowOffset: { width: 0, height: 8 },
-        }
+      ? { shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
       : { elevation: 2 }),
   },
 
@@ -557,7 +638,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
-  avatarText: { fontSize: 18, fontWeight: '800' },
+  avatarText: { fontSize: 18, fontWeight: '900' },
 
   avatarBadge: {
     position: 'absolute',
@@ -571,8 +652,8 @@ const styles = StyleSheet.create({
   },
   avatarBadgeText: { color: '#fff', fontWeight: '900', fontSize: 11 },
 
-  name: { fontSize: 18, fontWeight: '800', marginBottom: 2 },
-  meta: { fontSize: 12.5, fontWeight: '600' },
+  name: { fontSize: 18, fontWeight: '900', marginBottom: 2 },
+  meta: { fontSize: 12.5, fontWeight: '700' },
 
   badge: {
     paddingHorizontal: 10,
@@ -580,7 +661,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
-  badgeText: { fontSize: 12, fontWeight: '800' },
+  badgeText: { fontSize: 12, fontWeight: '900' },
 
   section: {
     borderRadius: 18,
@@ -588,18 +669,13 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 14,
     ...(Platform.OS === 'ios'
-      ? {
-          shadowColor: '#000',
-          shadowOpacity: 0.06,
-          shadowRadius: 14,
-          shadowOffset: { width: 0, height: 8 },
-        }
+      ? { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
       : { elevation: 1 }),
   },
   sectionTitle: { fontSize: 15.5, fontWeight: '900' },
-  sectionSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: '600' },
+  sectionSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: '700' },
 
-  fieldLabel: { fontSize: 12.5, fontWeight: '800' },
+  fieldLabel: { fontSize: 12.5, fontWeight: '900' },
   input: {
     marginTop: 6,
     borderRadius: 14,
@@ -607,17 +683,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'ios' ? 12 : 10,
     fontSize: 15.5,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  chipText: { fontSize: 13, fontWeight: '800' },
+  chip: { borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
+  chipText: { fontSize: 13, fontWeight: '900' },
 
   twoCols: { flexDirection: 'row', marginTop: 10 },
 
@@ -627,11 +698,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     paddingVertical: 14,
+    paddingHorizontal: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   statValue: { fontSize: 18, fontWeight: '900' },
-  statLabel: { marginTop: 4, fontSize: 12, fontWeight: '800' },
+  statLabel: { marginTop: 4, fontSize: 12, fontWeight: '800', textAlign: 'center' },
+
+  smallMeta: { fontSize: 12.5, fontWeight: '800' },
 
   primaryBtn: {
     borderRadius: 16,
@@ -649,6 +723,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   secondaryBtnText: { fontSize: 15.5, fontWeight: '900' },
-  smallMeta: { fontSize: 12.5, fontWeight: '700' },
-link: { fontSize: 13.5, fontWeight: '900' },
+
+  // Notifications row
+  row: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  rowTitle: { fontSize: 14.5, fontWeight: '900' },
+  rowSub: { marginTop: 4, fontSize: 12.5, fontWeight: '800' },
+
+  hint: { borderWidth: 1, borderRadius: 16, padding: 12, marginTop: 10 },
+  hintText: { fontSize: 12.5, fontWeight: '800', lineHeight: 18 },
+
+  link: { fontSize: 13.5, fontWeight: '900' },
 });

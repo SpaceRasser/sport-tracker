@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -9,7 +9,9 @@ import {
   Text,
   View,
   useColorScheme,
+  ActivityIndicator,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../api/client';
 
 type ActivityType = {
@@ -45,6 +47,8 @@ function makePalette(isDark: boolean) {
     border: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,24,40,0.08)',
     primary: '#2D6BFF',
     inputBg: isDark ? 'rgba(255,255,255,0.06)' : '#F2F4F7',
+    softPrimary: isDark ? 'rgba(45,107,255,0.16)' : 'rgba(45,107,255,0.10)',
+    danger: '#E5484D',
   };
 }
 
@@ -65,7 +69,6 @@ function formatDuration(sec?: number | null) {
 }
 
 function metricLabel(key: string) {
-  // чуть “по-человечески”
   const map: Record<string, string> = {
     distance_km: 'Дистанция',
     distance_m: 'Дистанция',
@@ -84,7 +87,45 @@ function metricLabel(key: string) {
   return map[key] ?? key;
 }
 
-function Chip({
+function Segment({
+  items,
+  value,
+  onChange,
+  palette,
+}: {
+  items: { label: string; value: Period }[];
+  value: Period;
+  onChange: (v: Period) => void;
+  palette: ReturnType<typeof makePalette>;
+}) {
+  return (
+    <View style={[styles.segmentWrap, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
+      {items.map((it) => {
+        const active = it.value === value;
+        return (
+          <Pressable
+            key={it.value}
+            onPress={() => onChange(it.value)}
+            style={({ pressed }) => [
+              styles.segmentBtn,
+              {
+                backgroundColor: active ? palette.card : 'transparent',
+                borderColor: active ? palette.border : 'transparent',
+                opacity: pressed ? 0.86 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.segmentText, { color: active ? palette.text : palette.subtext }]}>
+              {it.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function ActivityChip({
   label,
   active,
   onPress,
@@ -98,15 +139,16 @@ function Chip({
   return (
     <Pressable
       onPress={onPress}
-      style={[
+      style={({ pressed }) => [
         styles.chip,
         {
           borderColor: active ? palette.primary : palette.border,
-          backgroundColor: active ? 'rgba(45,107,255,0.14)' : palette.inputBg,
+          backgroundColor: active ? palette.softPrimary : palette.inputBg,
+          opacity: pressed ? 0.86 : 1,
         },
       ]}
     >
-      <Text style={[styles.chipText, { color: active ? palette.primary : palette.text }]}>
+      <Text style={[styles.chipText, { color: active ? palette.primary : palette.text }]} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -129,27 +171,44 @@ export default function HistoryScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const loadActivities = async () => {
+  const mountedRef = useRef(true);
+  const requestSeq = useRef(0);
+
+  const buildParams = useCallback(
+    (p: number) => {
+      const params: any = { page: p, limit: 12, period };
+      if (activityId !== 'all') params.activityTypeId = activityId;
+      return params;
+    },
+    [period, activityId],
+  );
+
+  const loadActivities = useCallback(async () => {
     const res = await api.get('/activities');
-    setActivities(res?.data?.items ?? []);
-  };
+    const list: ActivityType[] = res?.data?.items ?? [];
+    setActivities(list);
+  }, []);
 
-  const fetchPage = async (p: number, mode: 'replace' | 'append') => {
-    const params: any = { page: p, limit: 12, period };
-    if (activityId !== 'all') params.activityTypeId = activityId;
+  const fetchPage = useCallback(
+    async (p: number, mode: 'replace' | 'append') => {
+      const seq = ++requestSeq.current;
 
-    const res = await api.get('/workouts', { params });
-    const data = res?.data;
+      const res = await api.get('/workouts', { params: buildParams(p) });
+      if (!mountedRef.current) return;
+      if (seq !== requestSeq.current) return; // игнорируем устаревшие ответы
 
-    const newItems: Workout[] = data?.items ?? [];
-    const more = !!data?.hasMore;
+      const data = res?.data;
+      const newItems: Workout[] = data?.items ?? [];
+      const more = !!data?.hasMore;
 
-    setHasMore(more);
-    setPage(p);
-    setItems((prev) => (mode === 'replace' ? newItems : [...prev, ...newItems]));
-  };
+      setHasMore(more);
+      setPage(p);
+      setItems((prev) => (mode === 'replace' ? newItems : [...prev, ...newItems]));
+    },
+    [buildParams],
+  );
 
-  const load = async () => {
+  const initialLoad = useCallback(async () => {
     setLoading(true);
     try {
       await loadActivities();
@@ -157,40 +216,40 @@ export default function HistoryScreen({ navigation }: any) {
     } catch (e: any) {
       Alert.alert('Ошибка', e?.message ?? 'Не удалось загрузить историю');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
-  };
+  }, [fetchPage, loadActivities]);
 
-  useEffect(() => {
-    load();
-  }, []);
+  // mount + unmount
+  useFocusEffect(
+    useCallback(() => {
+      mountedRef.current = true;
+      // авто-обновление при входе на экран
+      initialLoad().catch(() => {});
+      return () => {
+        mountedRef.current = false;
+      };
+    }, [initialLoad]),
+  );
 
-  // при смене фильтра — перезагрузка
-  useEffect(() => {
-    if (!loading) {
+  // авто-перезагрузка при смене фильтров (без кнопок)
+  useFocusEffect(
+    useCallback(() => {
+      // когда экран уже в фокусе и фильтры поменялись — обновим
       fetchPage(1, 'replace').catch(() => {});
-    }
-  }, [period, activityId]);
+    }, [period, activityId, fetchPage]),
+  );
 
-  useEffect(() => {
-  const unsub = navigation.addListener('focus', () => {
-    // когда вернулись с деталей назад — обновим список
-    fetchPage(1, 'replace').catch(() => {});
-  });
-  return unsub;
-}, [navigation, period, activityId]);
-
-
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await fetchPage(1, 'replace');
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [fetchPage]);
 
-  const onEndReached = async () => {
+  const onEndReached = useCallback(async () => {
     if (!hasMore || loadingMore || loading || refreshing) return;
     setLoadingMore(true);
     try {
@@ -198,124 +257,177 @@ export default function HistoryScreen({ navigation }: any) {
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [hasMore, loadingMore, loading, refreshing, fetchPage, page]);
 
-  const renderItem = ({ item }: { item: Workout }) => {
-    const topMetrics = (item.metrics ?? []).slice(0, 3);
+  const renderItem = useCallback(
+    ({ item }: { item: Workout }) => {
+      const topMetrics = (item.metrics ?? []).slice(0, 3);
 
-    return (
-  <Pressable
-    onPress={() => navigation.navigate('WorkoutDetails', { workoutId: item.id })}
-    style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
-  >
-    <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
-      {/* ВЕСЬ твой текущий UI карточки оставь как есть */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.cardTitle, { color: palette.text }]} numberOfLines={1}>
-            {item.activityType?.name ?? 'Тренировка'}
-          </Text>
-          <Text style={[styles.cardSubtitle, { color: palette.subtext }]} numberOfLines={1}>
-            {formatDate(item.startedAt)} • {formatDuration(item.durationSec)}
-          </Text>
-        </View>
-
-        <View
-          style={[
-            styles.badge,
-            { borderColor: palette.border, backgroundColor: 'rgba(45,107,255,0.10)' },
-          ]}
+      return (
+        <Pressable
+          onPress={() => navigation.navigate('WorkoutDetails', { workoutId: item.id })}
+          style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
         >
-          <Text style={[styles.badgeText, { color: palette.primary }]}>{item.activityType?.code}</Text>
-        </View>
-      </View>
+          <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cardTitle, { color: palette.text }]} numberOfLines={1}>
+                  {item.activityType?.name ?? 'Тренировка'}
+                </Text>
+                <Text style={[styles.cardSubtitle, { color: palette.subtext }]} numberOfLines={1}>
+                  {formatDate(item.startedAt)} • {formatDuration(item.durationSec)}
+                </Text>
+              </View>
 
-      {topMetrics.length ? (
-        <View style={styles.metricsRow}>
-          {topMetrics.map((m) => (
-            <View
-              key={m.id}
-              style={[styles.metricPill, { borderColor: palette.border, backgroundColor: palette.inputBg }]}
-            >
-              <Text style={[styles.metricKey, { color: palette.subtext }]}>{metricLabel(m.metricKey)}</Text>
-              <Text style={[styles.metricVal, { color: palette.text }]}>
-                {Number(m.valueNum).toString()}
-                {m.unit ? ` ${m.unit}` : ''}
-              </Text>
+              <View
+                style={[
+                  styles.badge,
+                  { borderColor: palette.border, backgroundColor: palette.softPrimary },
+                ]}
+              >
+                <Text style={[styles.badgeText, { color: palette.primary }]}>{item.activityType?.code}</Text>
+              </View>
             </View>
-          ))}
-        </View>
-      ) : null}
 
-      {item.notes ? (
-        <Text style={[styles.notes, { color: palette.subtext }]} numberOfLines={2}>
-          {item.notes}
-        </Text>
-      ) : null}
-    </View>
-  </Pressable>
-);
+            {topMetrics.length ? (
+              <View style={styles.metricsRow}>
+                {topMetrics.map((m) => (
+                  <View
+                    key={m.id}
+                    style={[
+                      styles.metricPill,
+                      { borderColor: palette.border, backgroundColor: palette.inputBg },
+                    ]}
+                  >
+                    <Text style={[styles.metricKey, { color: palette.subtext }]} numberOfLines={1}>
+                      {metricLabel(m.metricKey)}
+                    </Text>
+                    <Text style={[styles.metricVal, { color: palette.text }]} numberOfLines={1}>
+                      {Number(m.valueNum).toString()}
+                      {m.unit ? ` ${m.unit}` : ''}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
 
-  };
+            {item.notes ? (
+              <Text style={[styles.notes, { color: palette.subtext }]} numberOfLines={2}>
+                {item.notes}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+      );
+    },
+    [navigation, palette],
+  );
 
-  return (
-    <View style={[styles.screen, { backgroundColor: palette.bg }]}>
+  const header = useMemo(() => {
+    return (
       <View style={[styles.headerCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
         <Text style={[styles.title, { color: palette.text }]}>История</Text>
-        <Text style={[styles.subtitle, { color: palette.subtext }]}>
-          Фильтруй по периоду и активности
-        </Text>
+        <Text style={[styles.subtitle, { color: palette.subtext }]}>Тренировки по датам</Text>
 
         <View style={{ marginTop: 12 }}>
           <Text style={[styles.filterLabel, { color: palette.subtext }]}>Период</Text>
-          <View style={styles.rowWrap}>
-            <Chip label="Все" active={period === 'all'} onPress={() => setPeriod('all')} palette={palette} />
-            <Chip label="7 дней" active={period === 'week'} onPress={() => setPeriod('week')} palette={palette} />
-            <Chip label="30 дней" active={period === 'month'} onPress={() => setPeriod('month')} palette={palette} />
-          </View>
+          <Segment
+            items={[
+              { label: 'Все', value: 'all' },
+              { label: '7 дней', value: 'week' },
+              { label: '30 дней', value: 'month' },
+            ]}
+            value={period}
+            onChange={setPeriod}
+            palette={palette}
+          />
         </View>
 
         <View style={{ marginTop: 12 }}>
           <Text style={[styles.filterLabel, { color: palette.subtext }]}>Активность</Text>
-          <View style={styles.rowWrap}>
-            <Chip label="Все" active={activityId === 'all'} onPress={() => setActivityId('all')} palette={palette} />
-            {activities.map((a) => (
-              <Chip
-                key={a.id}
-                label={a.name}
-                active={activityId === a.id}
-                onPress={() => setActivityId(a.id)}
-                palette={palette}
-              />
-            ))}
+
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <ActivityChip
+              label="Все"
+              active={activityId === 'all'}
+              onPress={() => setActivityId('all')}
+              palette={palette}
+            />
+            <FlatList
+              horizontal
+              data={activities}
+              keyExtractor={(a) => a.id}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+              renderItem={({ item }) => (
+                <ActivityChip
+                  label={item.name}
+                  active={activityId === item.id}
+                  onPress={() => setActivityId(item.id)}
+                  palette={palette}
+                />
+              )}
+            />
           </View>
         </View>
-      </View>
 
+        <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={[styles.meta, { color: palette.subtext }]}>
+            {loading ? 'Загрузка…' : `Показано: ${items.length}${hasMore ? '+' : ''}`}
+          </Text>
+          {refreshing ? <ActivityIndicator color={palette.primary} /> : null}
+        </View>
+      </View>
+    );
+  }, [palette, period, activityId, activities, loading, items.length, hasMore, refreshing]);
+
+  const empty = useMemo(() => {
+    if (loading) {
+      return (
+        <Text style={{ color: palette.subtext, textAlign: 'center', marginTop: 20, fontWeight: '800' }}>
+          Загрузка…
+        </Text>
+      );
+    }
+
+    return (
+      <View style={{ alignItems: 'center', marginTop: 18, paddingHorizontal: 24 }}>
+        <Text style={{ color: palette.subtext, textAlign: 'center', fontWeight: '800', lineHeight: 18 }}>
+          Пока нет тренировок. Добавь первую 🙂
+        </Text>
+
+        <Pressable
+          onPress={() => navigation.navigate('Drawer', { screen: 'AddWorkout' })}
+          style={({ pressed }) => [
+            styles.ctaBtn,
+            { backgroundColor: palette.primary, opacity: pressed ? 0.86 : 1 },
+          ]}
+        >
+          <Text style={styles.ctaText}>Добавить тренировку</Text>
+        </Pressable>
+      </View>
+    );
+  }, [loading, palette, navigation]);
+
+  return (
+    <View style={[styles.screen, { backgroundColor: palette.bg }]}>
       <FlatList
         data={items}
         keyExtractor={(it) => it.id}
         renderItem={renderItem}
-        contentContainerStyle={{ padding: 16, paddingTop: 10, paddingBottom: 18 }}
+        ListHeaderComponent={header}
+        contentContainerStyle={{ padding: 16, paddingTop: 16, paddingBottom: 18 }}
         onEndReached={onEndReached}
-        onEndReachedThreshold={0.4}
+        onEndReachedThreshold={0.35}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={
-          loading ? (
-            <Text style={{ color: palette.subtext, textAlign: 'center', marginTop: 20, fontWeight: '700' }}>
-              Загрузка…
-            </Text>
-          ) : (
-            <Text style={{ color: palette.subtext, textAlign: 'center', marginTop: 20, fontWeight: '700' }}>
-              Пока нет тренировок. Добавь первую 🙂
-            </Text>
-          )
-        }
+        ListEmptyComponent={empty}
         ListFooterComponent={
           loadingMore ? (
-            <Text style={{ color: palette.subtext, textAlign: 'center', marginTop: 10, fontWeight: '700' }}>
-              Загружаю ещё…
-            </Text>
+            <View style={{ paddingVertical: 10 }}>
+              <Text style={{ color: palette.subtext, textAlign: 'center', fontWeight: '800' }}>
+                Загружаю ещё…
+              </Text>
+            </View>
           ) : (
             <View style={{ height: 6 }} />
           )
@@ -329,11 +441,10 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
 
   headerCard: {
-    margin: 16,
-    marginBottom: 0,
     borderRadius: 18,
     borderWidth: 1,
     padding: 14,
+    marginBottom: 12,
     ...(Platform.OS === 'ios'
       ? { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
       : { elevation: 1 }),
@@ -341,18 +452,34 @@ const styles = StyleSheet.create({
 
   title: { fontSize: 18, fontWeight: '900' },
   subtitle: { marginTop: 4, fontSize: 12.5, fontWeight: '700' },
+  filterLabel: { fontSize: 12.5, fontWeight: '900' },
+  meta: { fontSize: 12, fontWeight: '800', opacity: 0.9 },
 
-  filterLabel: { fontSize: 12.5, fontWeight: '900', marginBottom: 8 },
-
-  rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  segmentWrap: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 999,
+    padding: 4,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  segmentBtn: {
+    flex: 1,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  segmentText: { fontSize: 13, fontWeight: '900' },
 
   chip: {
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: 999,
+    maxWidth: 160,
   },
-  chipText: { fontSize: 13, fontWeight: '800' },
+  chipText: { fontSize: 13, fontWeight: '900' },
 
   card: {
     borderRadius: 18,
@@ -376,14 +503,12 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '900' },
 
   metricsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  metricPill: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
+  metricPill: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 8, maxWidth: '48%' },
   metricKey: { fontSize: 11.5, fontWeight: '900' },
   metricVal: { marginTop: 2, fontSize: 13.5, fontWeight: '900' },
 
   notes: { marginTop: 10, fontSize: 12.5, fontWeight: '700', lineHeight: 18 },
+
+  ctaBtn: { marginTop: 12, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 16 },
+  ctaText: { color: '#fff', fontSize: 14.5, fontWeight: '900' },
 });

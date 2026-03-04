@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "592757719404",
+    "project_id": "notificationsporttracker",
+    "storage_bucket": "notificationsporttracker.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:592757719404:android:3bc5bf7b8dda2b6c6ff349",
+        "android_client_info": {
+          "package_name": "com.rasse.sporttracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDBthVGW5emREXPezYxz_5tYqbh_9AjjI0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

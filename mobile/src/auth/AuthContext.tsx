@@ -14,6 +14,9 @@ import {
   DemoRegisterPayload,
 } from '../api/authApi';
 
+// ✅ Native VKID login (Android SDK)
+import { vkIdNativeLogin } from '../integrations/vkidNative';
+
 type AuthState = {
   accessToken: string | null;
   refreshToken: string | null;
@@ -21,20 +24,30 @@ type AuthState = {
 };
 
 type AuthContextValue = AuthState & {
-  // старый быстрый демо-вход (можешь потом убрать из UI)
   signInDemo: () => Promise<void>;
 
-  // новые demo по телефону/паролю
   demoCheckPhone: (phone: string) => Promise<{ exists: boolean }>;
   signInDemoRegister: (payload: DemoRegisterPayload) => Promise<void>;
   signInDemoLogin: (payload: DemoLoginPayload) => Promise<void>;
 
+  // VK ID (browser flow)
   signInVk: (payload: VkIdLoginPayload) => Promise<void>;
+
+  // ✅ VK ID (native flow)
+  signInVkNative: () => Promise<void>;
+
+  // SMS
   signInSms: (payload: SmsVerifyPayload) => Promise<void>;
+
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+// helper: безопасно сохранить токены (VK ID может не давать refresh)
+async function persistTokens(accessToken: string, refreshToken: string | null | undefined) {
+  await setTokens(accessToken, refreshToken ?? '');
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
@@ -54,7 +67,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ]);
 
         if (!mounted) return;
-        setState({ accessToken, refreshToken, isLoading: false });
+
+        setState({
+          accessToken: accessToken || null,
+          refreshToken: refreshToken || null,
+          isLoading: false,
+        });
       } catch {
         if (!mounted) return;
         setState({ accessToken: null, refreshToken: null, isLoading: false });
@@ -69,13 +87,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     ...state,
 
-    // старый “один пользователь”
     signInDemo: async () => {
       setState((s) => ({ ...s, isLoading: true }));
       try {
         const data = await authDemo();
-        await setTokens(data.accessToken, data.refreshToken);
-        setState({ accessToken: data.accessToken, refreshToken: data.refreshToken, isLoading: false });
+        await persistTokens(data.accessToken, data.refreshToken);
+        setState({
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken ?? null,
+          isLoading: false,
+        });
       } catch (e) {
         await clearTokens();
         setState({ accessToken: null, refreshToken: null, isLoading: false });
@@ -83,18 +104,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
 
-    // ✅ demo check phone
     demoCheckPhone: async (phone: string) => {
       return authDemoCheckPhone(phone);
     },
 
-    // ✅ demo register
     signInDemoRegister: async (payload: DemoRegisterPayload) => {
       setState((s) => ({ ...s, isLoading: true }));
       try {
         const data = await authDemoRegister(payload);
-        await setTokens(data.accessToken, data.refreshToken);
-        setState({ accessToken: data.accessToken, refreshToken: data.refreshToken, isLoading: false });
+        await persistTokens(data.accessToken, data.refreshToken);
+        setState({
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken ?? null,
+          isLoading: false,
+        });
       } catch (e) {
         await clearTokens();
         setState({ accessToken: null, refreshToken: null, isLoading: false });
@@ -102,13 +125,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
 
-    // ✅ demo login
     signInDemoLogin: async (payload: DemoLoginPayload) => {
       setState((s) => ({ ...s, isLoading: true }));
       try {
         const data = await authDemoLogin(payload);
-        await setTokens(data.accessToken, data.refreshToken);
-        setState({ accessToken: data.accessToken, refreshToken: data.refreshToken, isLoading: false });
+        await persistTokens(data.accessToken, data.refreshToken);
+        setState({
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken ?? null,
+          isLoading: false,
+        });
       } catch (e) {
         await clearTokens();
         setState({ accessToken: null, refreshToken: null, isLoading: false });
@@ -116,13 +142,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
 
-    // ✅ VK ID login
+    // ✅ VK ID browser flow (code + deviceId + verifier + redirect)
     signInVk: async (payload: VkIdLoginPayload) => {
       setState((s) => ({ ...s, isLoading: true }));
       try {
         const data = await authVkId(payload);
-        await setTokens(data.accessToken, data.refreshToken);
-        setState({ accessToken: data.accessToken, refreshToken: data.refreshToken, isLoading: false });
+        await persistTokens(data.accessToken, data.refreshToken ?? null);
+        setState({
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken ?? null,
+          isLoading: false,
+        });
       } catch (e) {
         await clearTokens();
         setState({ accessToken: null, refreshToken: null, isLoading: false });
@@ -130,13 +160,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
 
-    // ✅ SMS login
+    // ✅ VK ID native flow (VKID SDK -> backend -> JWT)
+    signInVkNative: async () => {
+      setState((s) => ({ ...s, isLoading: true }));
+      try {
+        const data = await vkIdNativeLogin(); // { accessToken, user }
+        await persistTokens(data.accessToken, null); // refresh нет
+        setState({
+          accessToken: data.accessToken,
+          refreshToken: null,
+          isLoading: false,
+        });
+      } catch (e) {
+        await clearTokens();
+        setState({ accessToken: null, refreshToken: null, isLoading: false });
+        throw e;
+      }
+    },
+
     signInSms: async (payload: SmsVerifyPayload) => {
       setState((s) => ({ ...s, isLoading: true }));
       try {
         const data = await authSmsVerify(payload);
-        await setTokens(data.accessToken, data.refreshToken);
-        setState({ accessToken: data.accessToken, refreshToken: data.refreshToken, isLoading: false });
+        await persistTokens(data.accessToken, data.refreshToken);
+        setState({
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken ?? null,
+          isLoading: false,
+        });
       } catch (e) {
         await clearTokens();
         setState({ accessToken: null, refreshToken: null, isLoading: false });
@@ -145,19 +196,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
 
     signOut: async () => {
-  setState((s) => ({ ...s, isLoading: true }));
-  try {
-    const refresh = await getRefreshToken(); // всегда из стораджа — актуально
-    if (refresh) {
+      setState((s) => ({ ...s, isLoading: true }));
       try {
-        await authLogout(refresh);
-      } catch {}
-    }
-  } finally {
-    await clearTokens();
-    setState({ accessToken: null, refreshToken: null, isLoading: false });
-  }
-},
+        const refresh = await getRefreshToken();
+        if (refresh) {
+          try {
+            await authLogout(refresh);
+          } catch {}
+        }
+      } finally {
+        await clearTokens();
+        setState({ accessToken: null, refreshToken: null, isLoading: false });
+      }
+    },
   }), [state]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

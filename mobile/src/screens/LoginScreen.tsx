@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useMemo } from "react";
 import {
   View,
   Text,
@@ -8,52 +8,10 @@ import {
   Platform,
   useColorScheme,
   StatusBar,
+  KeyboardAvoidingView,
 } from "react-native";
-import * as WebBrowser from "expo-web-browser";
-import * as AuthSession from "expo-auth-session";
 import { useAuth } from "../auth/AuthContext";
-import { authSmsRequest } from "../api/authApi";
 import { useNavigation } from "@react-navigation/native";
-
-WebBrowser.maybeCompleteAuthSession();
-
-const VK_AUTHORIZE_ENDPOINT = "https://id.vk.ru/authorize";
-
-const OWNER = "rasser31";
-const SLUG = "sport-tracker";
-const PROJECT_FULL_NAME = `@${OWNER}/${SLUG}`;
-
-// iOS: есть Alert.prompt, Android: нет
-function promptText(
-  title: string,
-  message: string,
-  placeholder: string,
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    if (Platform.OS === "ios" && (Alert as any).prompt) {
-      (Alert as any).prompt(
-        title,
-        message,
-        [
-          { text: "Отмена", style: "cancel", onPress: () => resolve(null) },
-          {
-            text: "OK",
-            onPress: (value: string) =>
-              resolve(value?.trim() ? value.trim() : null),
-          },
-        ],
-        "plain-text",
-        placeholder,
-      );
-    } else {
-      Alert.alert(
-        title,
-        `${message}\n\nНа Android Alert.prompt не работает — используй “Войти по телефону”.`,
-        [{ text: "Ок", onPress: () => resolve(null) }],
-      );
-    }
-  });
-}
 
 function makePalette(isDark: boolean) {
   return {
@@ -61,7 +19,7 @@ function makePalette(isDark: boolean) {
     card: isDark ? "#121625" : "#FFFFFF",
     text: isDark ? "#E9ECF5" : "#121722",
     subtext: isDark ? "#A9B1C7" : "#5C667A",
-    border: isDark ? "rgba(255,255,255,0.08)" : "rgba(16,24,40,0.08)",
+    border: isDark ? "rgba(255,255,255,0.10)" : "rgba(16,24,40,0.10)",
     primary: "#2D6BFF",
     success: "#2E7D32",
     neutral: isDark ? "rgba(255,255,255,0.06)" : "#EEF2F6",
@@ -88,11 +46,12 @@ function Button({
     variant === "primary"
       ? palette.primary
       : variant === "success"
-        ? palette.success
-        : palette.neutral;
+      ? palette.success
+      : palette.neutral;
 
   const textColor = variant === "neutral" ? palette.text : "#fff";
-  const subColor = variant === "neutral" ? palette.subtext : "rgba(255,255,255,0.85)";
+  const subColor =
+    variant === "neutral" ? palette.subtext : "rgba(255,255,255,0.85)";
 
   return (
     <Pressable
@@ -110,7 +69,9 @@ function Button({
       <View style={{ flex: 1 }}>
         <Text style={[styles.btnTitle, { color: textColor }]}>{title}</Text>
         {subtitle ? (
-          <Text style={[styles.btnSubtitle, { color: subColor }]}>{subtitle}</Text>
+          <Text style={[styles.btnSubtitle, { color: subColor }]}>
+            {subtitle}
+          </Text>
         ) : null}
       </View>
       <Text style={[styles.btnChevron, { color: textColor }]}>{">"}</Text>
@@ -120,116 +81,50 @@ function Button({
 
 export default function LoginScreen() {
   const navigation = useNavigation<any>();
-  const { signInVk, signInSms } = useAuth() as any;
+  const { signInVkNative } = useAuth() as any;
+
   const scheme = useColorScheme();
   const palette = useMemo(() => makePalette(scheme === "dark"), [scheme]);
 
-  const clientId = process.env.EXPO_PUBLIC_VK_CLIENT_ID;
-
-  const redirectUri = AuthSession.makeRedirectUri({
-    useProxy: true,
-    projectNameForProxy: PROJECT_FULL_NAME,
-  } as any);
-
-  const [request, response, promptAsync] = AuthSession.useAuthRequest(
-    {
-      clientId: clientId ?? "",
-      redirectUri,
-      responseType: AuthSession.ResponseType.Code,
-      usePKCE: true,
-      scopes: [],
-    },
-    { authorizationEndpoint: VK_AUTHORIZE_ENDPOINT },
-  );
-
-  useEffect(() => {
-    (async () => {
-      if (!response) return;
-
-      if (response.type !== "success") return;
-
-      const params: any = response.params || {};
-      const code = params.code;
-      const deviceId = params.device_id;
-
-      if (params.error) {
-        Alert.alert("VK ошибка", String(params.error_description ?? params.error));
-        return;
-      }
-
-      if (!code) return Alert.alert("Ошибка", "VK не вернул code");
-      if (!deviceId) return Alert.alert("Ошибка", "VK не вернул device_id");
-
-      const codeVerifier = (request as any)?.codeVerifier;
-      if (!codeVerifier) return Alert.alert("Ошибка", "Нет codeVerifier (PKCE)");
-
-      try {
-        await signInVk({ code, deviceId, codeVerifier, redirectUri });
-      } catch (e: any) {
-        Alert.alert("Ошибка", e?.message ?? "VK login failed");
-      }
-    })();
-  }, [response, request, redirectUri]);
-
   const onVkPress = async () => {
-    if (!clientId) {
-      Alert.alert("Ошибка", "Нет EXPO_PUBLIC_VK_CLIENT_ID в mobile/.env");
+    if (Platform.OS !== "android") {
+      Alert.alert("VK ID", "Сейчас VK ID нативно настроен только для Android.");
       return;
     }
 
-    await (promptAsync as any)({
-      useProxy: true,
-      projectNameForProxy: PROJECT_FULL_NAME,
-    });
-  };
-
-  const onSmsPress = async () => {
     try {
-      const phone = await promptText(
-        "Вход по SMS",
-        "Введи номер телефона РФ (пример: +79991234567)",
-        "+79991234567",
-      );
-      if (!phone) return;
-
-      const req = await authSmsRequest({ phone });
-      const hint = req?.testCode ? `\n\nТЕСТ-КОД: ${req.testCode}` : "";
-
-      const code = await promptText(
-        "Код из SMS",
-        `Введи 6 цифр из SMS.${hint}`,
-        req?.testCode ?? "",
-      );
-      if (!code) return;
-
-      await signInSms({ phone, code });
+      await signInVkNative();
     } catch (e: any) {
-      Alert.alert("Ошибка", e?.message ?? "SMS login failed");
+      Alert.alert(
+        "VK ID",
+        e?.response?.data?.message ??
+          e?.message ??
+          "VK ID native login failed"
+      );
     }
   };
 
-  return (
-    <View style={[styles.screen, { backgroundColor: palette.bg }]}>
-      <StatusBar barStyle={scheme === "dark" ? "light-content" : "dark-content"} />
+  const onSmsPress = () => {
+    // ✅ переход на наш новый красивый экран SMS
+    navigation.navigate("PhoneAuth");
+  };
 
-      {/* верхняя “аура” */}
+  return (
+    <KeyboardAvoidingView
+      style={[styles.screen, { backgroundColor: palette.bg }]}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <StatusBar
+        barStyle={scheme === "dark" ? "light-content" : "dark-content"}
+      />
+
       <View
         pointerEvents="none"
-        style={[
-          styles.topGlow,
-          {
-            backgroundColor: "rgba(45,107,255,0.18)",
-          },
-        ]}
+        style={[styles.topGlow, { backgroundColor: "rgba(45,107,255,0.18)" }]}
       />
       <View
         pointerEvents="none"
-        style={[
-          styles.topGlow2,
-          {
-            backgroundColor: "rgba(45,107,255,0.10)",
-          },
-        ]}
+        style={[styles.topGlow2, { backgroundColor: "rgba(45,107,255,0.10)" }]}
       />
 
       <View
@@ -252,31 +147,24 @@ export default function LoginScreen() {
               },
             ]}
           >
-            <Text style={[styles.logoText, { color: palette.primary }]}>ST</Text>
+            <Text style={[styles.logoText, { color: palette.primary }]}>
+              ST
+            </Text>
           </View>
 
-          <Text style={[styles.title, { color: palette.text }]}>SportTracker</Text>
+          <Text style={[styles.title, { color: palette.text }]}>
+            SportTracker
+          </Text>
           <Text style={[styles.subtitle, { color: palette.subtext }]}>
             Дневник тренировок, PR и прогресс — всё в одном месте.
           </Text>
         </View>
 
         <Button
-          title="Войти через VK"
-          subtitle="Рекомендуемый способ"
+          title="Войти через VK ID"
+          subtitle="Android • через приложение VK (нативно)"
           onPress={onVkPress}
-          disabled={!request}
           variant="primary"
-          palette={palette}
-        />
-
-        <View style={{ height: 10 }} />
-
-        <Button
-          title="Войти по SMS"
-          subtitle={Platform.OS === "android" ? "На Android лучше через “по телефону”" : "Быстро и удобно"}
-          onPress={onSmsPress}
-          variant="success"
           palette={palette}
         />
 
@@ -287,22 +175,23 @@ export default function LoginScreen() {
         </View>
 
         <Button
-          title="Войти по телефону"
-          subtitle="Экран ввода телефона и кода"
-          onPress={() => navigation.navigate("PhoneAuth")}
-          variant="neutral"
+          title="Войти по SMS"
+          subtitle="Код подтверждения на номер телефона"
+          onPress={onSmsPress}
+          variant="success"
           palette={palette}
         />
 
         <Text style={[styles.hint, { color: palette.subtext }]}>
-          Продолжая, ты соглашаешься с обработкой данных для входа и ведения статистики.
+          Продолжая, ты соглашаешься с обработкой данных для входа и ведения
+          статистики.
         </Text>
       </View>
 
       <Text style={[styles.footer, { color: palette.subtext }]}>
-        © {new Date().getFullYear()} SportTracker • Demo
+        © {new Date().getFullYear()} SportTracker
       </Text>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -355,7 +244,12 @@ const styles = StyleSheet.create({
   logoText: { fontSize: 18, fontWeight: "900" },
 
   title: { fontSize: 22, fontWeight: "900" },
-  subtitle: { marginTop: 6, fontSize: 13, fontWeight: "700", textAlign: "center" },
+  subtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
 
   btn: {
     width: "100%",
