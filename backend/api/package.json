@@ -13,7 +13,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:deploy": "prisma migrate deploy --config=./prisma.config.ts",
     "railway:build": "npm run prisma:generate && npm run build",
     "railway:start": "node -e \"console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'OK' : 'MISSING'); console.log('ENV_KEYS:', Object.keys(process.env).filter(k=>k.includes('DATABASE')||k.includes('POSTGRES')).sort())\" && npm run prisma:migrate:deploy && npm run start:prod",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
