@@ -1,21 +1,21 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Railway / reverse proxy
   app.set('trust proxy', 1);
 
-  // Mobile apps need CORS
+  // CORS (для мобилки ок оставить origin: true)
   app.enableCors({
-    origin: '*',
-    credentials: false,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    origin: true,
+    credentials: true,
   });
 
+  // ✅ DTO validation
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
