@@ -1,25 +1,31 @@
-FROM node:20-alpine AS build
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN ls -la && ls -la prisma && ls -la prisma.config.*
-# Prisma schema точно есть тут: ./prisma/schema.prisma
-RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres?schema=public" npm run prisma:generate
+
+# ВАЖНО: Prisma 7 требует DATABASE_URL даже для generate, поэтому ставим dummy
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy?schema=public"
+
+RUN npm run prisma:generate
 RUN npm run build
+
 
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=build /app/package*.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/prisma ./prisma
+# ставим зависимости
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 
-EXPOSE 3000
+# приложение
+COPY --from=builder /app/dist ./dist
 
-# ВАЖНО: сначала миграции, потом старт
-CMD ["sh", "-c", "npm run prisma:migrate:deploy && node dist/src/main.js"]
+# prisma assets + CONFIG !!!
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+
+CMD ["npm","run","railway:start"]
