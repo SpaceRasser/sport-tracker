@@ -14,7 +14,7 @@
     "start:prod": "node dist/src/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy --config=./prisma.config.ts",
-    "prisma:seed": "node --loader ts-node/esm prisma/seed.ts",
+    "prisma:seed": "tsc -p prisma/tsconfig.seed.json && node dist-prisma/seed.js",
     "railway:build": "npm run prisma:generate && npm run build",
     "railway:start": "npm run prisma:migrate:deploy && npm run prisma:seed && npm run start:prod",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
