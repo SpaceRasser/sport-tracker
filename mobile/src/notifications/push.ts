@@ -73,6 +73,15 @@ export async function registerPushIfNeeded(): Promise<void> {
     return;
   }
 
+  const authHeader =
+    (api.defaults.headers as any)?.common?.Authorization ??
+    (api.defaults.headers as any)?.Authorization;
+
+  if (!authHeader) {
+    console.log('[push] no Authorization yet -> skip /me/device');
+    return;
+  }
+
   try {
     const resp = await api.post('/me/device', {
       token: expoPushToken,
@@ -81,6 +90,7 @@ export async function registerPushIfNeeded(): Promise<void> {
     console.log('[push] /me/device OK:', resp.data);
   } catch (e: any) {
     console.log('[push] /me/device FAILED:', e?.response?.status, e?.response?.data ?? e?.message ?? e);
-    throw e;
+    // ✅ В PROD не кидаем throw, иначе ты ловишь “рандомные” падения
+    return;
   }
 }

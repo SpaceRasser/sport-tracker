@@ -7,7 +7,7 @@ import { AuthService } from './auth.service';
 export class VkIdController {
   constructor(private vkid: VkIdService, private auth: AuthService) {}
 
-  // browser-flow (PKCE): code + deviceId + verifier
+  // browser/PKCE flow (code + deviceId + verifier)
   @Post('vk-id/exchange')
   async exchange(@Body() body: VkLoginDto) {
     if (!body?.code) throw new BadRequestException('code is required');
@@ -22,12 +22,13 @@ export class VkIdController {
       redirectUri: body.redirectUri,
     });
 
-    // ✅ ЕДИНЫЙ ФОРМАТ ТОКЕНОВ ДЛЯ ВСЕХ ЛОГИНОВ
+    // ✅ единый формат токенов: payload.sub = user.id
     const tokens = await this.auth.issueTokens(user.id);
+
     return { user, ...tokens };
   }
 
-  // native-flow (VKID SDK): accessToken напрямую
+  // native flow (VK SDK already gives accessToken)
   @Post('vk-id/token')
   async token(@Body() body: { accessToken: string }) {
     const accessTokenVk = String(body?.accessToken ?? '').trim();
@@ -35,8 +36,9 @@ export class VkIdController {
 
     const { user } = await this.vkid.loginByAccessToken(accessTokenVk);
 
-    // ✅ ЕДИНЫЙ ФОРМАТ ТОКЕНОВ ДЛЯ ВСЕХ ЛОГИНОВ
+    // ✅ единый формат токенов
     const tokens = await this.auth.issueTokens(user.id);
+
     return { user, ...tokens };
   }
 }
