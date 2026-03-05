@@ -62,12 +62,15 @@ export class VkIdService {
     );
 
     if (!this.clientId || !this.clientSecret) {
-      throw new BadRequestException('VKID client credentials are not configured');
+      throw new BadRequestException(
+        'VKID client credentials are not configured',
+      );
     }
     if (!redirectUri) throw new BadRequestException('redirectUri is required');
     if (!code) throw new BadRequestException('code is required');
     if (!deviceId) throw new BadRequestException('deviceId is required');
-    if (!codeVerifier) throw new BadRequestException('codeVerifier is required');
+    if (!codeVerifier)
+      throw new BadRequestException('codeVerifier is required');
 
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -81,10 +84,14 @@ export class VkIdService {
 
     let token: TokenResponse;
     try {
-      const resp = await axios.post('https://id.vk.ru/oauth2/auth', body.toString(), {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: 15000,
-      });
+      const resp = await axios.post(
+        'https://id.vk.ru/oauth2/auth',
+        body.toString(),
+        {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: 15000,
+        },
+      );
       token = resp.data;
 
       // ===== DEBUG =====
@@ -133,14 +140,28 @@ export class VkIdService {
       userInfo = await this.fetchUserInfo(token.access_token);
 
       // ===== DEBUG =====
-      this.log.debug(
-        `[user_info] keys=${userInfo ? Object.keys(userInfo).join(',') : 'null'} user.keys=${
-          userInfo?.user ? Object.keys(userInfo.user).join(',') : 'null'
-        }`,
+      this.log.warn(
+        '[VK user_info raw]',
+        JSON.stringify({
+          hasPhone: !!(
+            userInfo?.user?.phone ||
+            userInfo?.phone ||
+            userInfo?.user?.phone_number
+          ),
+          phoneValue:
+            userInfo?.user?.phone ??
+            userInfo?.phone ??
+            userInfo?.user?.phone_number ??
+            null,
+          keys: Object.keys(userInfo ?? {}),
+          userKeys: Object.keys(userInfo?.user ?? {}),
+        }),
       );
     } catch (e: any) {
       // ===== DEBUG =====
-      this.log.warn(`[user_info] failed: ${JSON.stringify(e?.response?.data ?? e?.message ?? String(e))}`);
+      this.log.warn(
+        `[user_info] failed: ${JSON.stringify(e?.response?.data ?? e?.message ?? String(e))}`,
+      );
       userInfo = null;
     }
 
@@ -181,7 +202,8 @@ export class VkIdService {
 
     const name = `${firstName} ${lastName}`.trim() || null;
 
-    const email = userInfo?.user?.email ?? userInfo?.email ?? idPayload?.email ?? null;
+    const email =
+      userInfo?.user?.email ?? userInfo?.email ?? idPayload?.email ?? null;
     const phone = userInfo?.user?.phone ?? userInfo?.phone ?? null;
 
     const avatar =
@@ -203,7 +225,13 @@ export class VkIdService {
     // ✅ Не затираем существующие данные null-ами
     const existing = await this.prisma.user.findUnique({
       where: { vkId: vkUserId },
-      select: { id: true, name: true, email: true, phone: true, avatarUrl: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        avatarUrl: true,
+      },
     });
 
     const user = await this.prisma.user.upsert({
@@ -221,7 +249,14 @@ export class VkIdService {
         phone,
         avatarUrl: avatar,
       },
-      select: { id: true, vkId: true, name: true, email: true, phone: true, avatarUrl: true },
+      select: {
+        id: true,
+        vkId: true,
+        name: true,
+        email: true,
+        phone: true,
+        avatarUrl: true,
+      },
     });
 
     // ===========================
@@ -234,7 +269,9 @@ export class VkIdService {
     if (sexNum === 2) gender = 'male';
     else if (sexNum === 1) gender = 'female';
 
-    const bdayRaw: string | null = userInfo?.user?.birthday ? String(userInfo.user.birthday) : null;
+    const bdayRaw: string | null = userInfo?.user?.birthday
+      ? String(userInfo.user.birthday)
+      : null;
 
     let birthdate: Date | null = null;
     if (bdayRaw) {
@@ -252,7 +289,8 @@ export class VkIdService {
     }
 
     this.log.debug(
-      `[profile] sex=${vkSex ?? '—'} -> gender=${gender} birthday=${bdayRaw ?? '—'} parsed=${birthdate ? birthdate.toISOString().slice(0, 10) : '—'
+      `[profile] sex=${vkSex ?? '—'} -> gender=${gender} birthday=${bdayRaw ?? '—'} parsed=${
+        birthdate ? birthdate.toISOString().slice(0, 10) : '—'
       }`,
     );
 
@@ -269,7 +307,11 @@ export class VkIdService {
       },
     });
 
-    return { user, vkAccessToken: token.access_token, vkIdToken: token.id_token ?? null };
+    return {
+      user,
+      vkAccessToken: token.access_token,
+      vkIdToken: token.id_token ?? null,
+    };
   }
 
   private async fetchUserInfo(accessToken: string) {
@@ -292,104 +334,116 @@ export class VkIdService {
   }
 
   async loginByAccessToken(accessToken: string) {
-  if (!accessToken) throw new BadRequestException('accessToken is required');
+    if (!accessToken) throw new BadRequestException('accessToken is required');
 
-  let userInfo: any;
-  try {
-    userInfo = await this.fetchUserInfo(accessToken);
-  } catch (e: any) {
-    throw new BadRequestException({
-      message: 'VKID user_info failed',
-      details: e?.response?.data ?? e?.message ?? String(e),
-    });
-  }
-
-  const vkUserId = String(
-    userInfo?.user?.user_id ??
-    userInfo?.user_id ??
-    userInfo?.id ??
-    ''
-  ).trim();
-
-  if (!vkUserId) {
-    throw new BadRequestException({
-      message: 'VKID: no user_id in user_info',
-      details: userInfo,
-    });
-  }
-
-  // Профиль
-  const firstName = userInfo?.user?.first_name ?? userInfo?.first_name ?? '';
-  const lastName = userInfo?.user?.last_name ?? userInfo?.last_name ?? '';
-  const name = `${firstName} ${lastName}`.trim() || null;
-
-  const email = userInfo?.user?.email ?? userInfo?.email ?? null;
-  const phone = userInfo?.user?.phone ?? userInfo?.phone ?? null;
-
-  const avatar =
-    userInfo?.user?.avatar ??
-    userInfo?.user?.avatar_url ??
-    userInfo?.avatar ??
-    userInfo?.avatar_url ??
-    null;
-
-  // не затираем null-ами
-  const existing = await this.prisma.user.findUnique({
-    where: { vkId: vkUserId },
-    select: { id: true, name: true, email: true, phone: true, avatarUrl: true },
-  });
-
-  const user = await this.prisma.user.upsert({
-    where: { vkId: vkUserId },
-    update: {
-      name: name ?? existing?.name ?? null,
-      email: email ?? existing?.email ?? null,
-      phone: phone ?? existing?.phone ?? null,
-      avatarUrl: avatar ?? existing?.avatarUrl ?? null,
-    },
-    create: {
-      vkId: vkUserId,
-      name,
-      email,
-      phone,
-      avatarUrl: avatar,
-    },
-    select: { id: true, vkId: true, name: true, email: true, phone: true, avatarUrl: true },
-  });
-
-  // gender + birthday (если есть)
-  const vkSex = userInfo?.user?.sex;
-  const sexNum = typeof vkSex === 'string' ? Number(vkSex) : vkSex;
-  let gender: 'male' | 'female' | 'unknown' = 'unknown';
-  if (sexNum === 2) gender = 'male';
-  else if (sexNum === 1) gender = 'female';
-
-  const bdayRaw: string | null = userInfo?.user?.birthday ? String(userInfo.user.birthday) : null;
-  let birthdate: Date | null = null;
-  if (bdayRaw) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(bdayRaw)) {
-      const d = new Date(bdayRaw);
-      if (!Number.isNaN(d.getTime())) birthdate = d;
-    } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(bdayRaw)) {
-      const [dd, mm, yyyy] = bdayRaw.split('.').map((x) => Number(x));
-      const d = new Date(yyyy, mm - 1, dd);
-      if (!Number.isNaN(d.getTime())) birthdate = d;
+    let userInfo: any;
+    try {
+      userInfo = await this.fetchUserInfo(accessToken);
+    } catch (e: any) {
+      throw new BadRequestException({
+        message: 'VKID user_info failed',
+        details: e?.response?.data ?? e?.message ?? String(e),
+      });
     }
+
+    const vkUserId = String(
+      userInfo?.user?.user_id ?? userInfo?.user_id ?? userInfo?.id ?? '',
+    ).trim();
+
+    if (!vkUserId) {
+      throw new BadRequestException({
+        message: 'VKID: no user_id in user_info',
+        details: userInfo,
+      });
+    }
+
+    // Профиль
+    const firstName = userInfo?.user?.first_name ?? userInfo?.first_name ?? '';
+    const lastName = userInfo?.user?.last_name ?? userInfo?.last_name ?? '';
+    const name = `${firstName} ${lastName}`.trim() || null;
+
+    const email = userInfo?.user?.email ?? userInfo?.email ?? null;
+    const phone = userInfo?.user?.phone ?? userInfo?.phone ?? null;
+
+    const avatar =
+      userInfo?.user?.avatar ??
+      userInfo?.user?.avatar_url ??
+      userInfo?.avatar ??
+      userInfo?.avatar_url ??
+      null;
+
+    // не затираем null-ами
+    const existing = await this.prisma.user.findUnique({
+      where: { vkId: vkUserId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        avatarUrl: true,
+      },
+    });
+
+    const user = await this.prisma.user.upsert({
+      where: { vkId: vkUserId },
+      update: {
+        name: name ?? existing?.name ?? null,
+        email: email ?? existing?.email ?? null,
+        phone: phone ?? existing?.phone ?? null,
+        avatarUrl: avatar ?? existing?.avatarUrl ?? null,
+      },
+      create: {
+        vkId: vkUserId,
+        name,
+        email,
+        phone,
+        avatarUrl: avatar,
+      },
+      select: {
+        id: true,
+        vkId: true,
+        name: true,
+        email: true,
+        phone: true,
+        avatarUrl: true,
+      },
+    });
+
+    // gender + birthday (если есть)
+    const vkSex = userInfo?.user?.sex;
+    const sexNum = typeof vkSex === 'string' ? Number(vkSex) : vkSex;
+    let gender: 'male' | 'female' | 'unknown' = 'unknown';
+    if (sexNum === 2) gender = 'male';
+    else if (sexNum === 1) gender = 'female';
+
+    const bdayRaw: string | null = userInfo?.user?.birthday
+      ? String(userInfo.user.birthday)
+      : null;
+    let birthdate: Date | null = null;
+    if (bdayRaw) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(bdayRaw)) {
+        const d = new Date(bdayRaw);
+        if (!Number.isNaN(d.getTime())) birthdate = d;
+      } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(bdayRaw)) {
+        const [dd, mm, yyyy] = bdayRaw.split('.').map((x) => Number(x));
+        const d = new Date(yyyy, mm - 1, dd);
+        if (!Number.isNaN(d.getTime())) birthdate = d;
+      }
+    }
+
+    await this.prisma.profile.upsert({
+      where: { userId: user.id },
+      update: {
+        gender: gender as any,
+        birthdate: birthdate ?? undefined,
+      },
+      create: {
+        userId: user.id,
+        gender: gender as any,
+        birthdate,
+      },
+    });
+
+    return { user };
   }
-
-  await this.prisma.profile.upsert({
-    where: { userId: user.id },
-    update: {
-      gender: gender as any,
-      birthdate: birthdate ?? undefined,
-    },
-    create: {
-      userId: user.id,
-      gender: gender as any,
-      birthdate,
-    },
-  });
-
-  return { user };
-}
 }
