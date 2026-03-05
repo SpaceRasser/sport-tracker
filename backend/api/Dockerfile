@@ -2,6 +2,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
+RUN ls -la && ls -la prisma && ls -la prisma.config.*
 RUN npm ci
 
 COPY . .
