@@ -7,6 +7,7 @@ RUN npm ci
 COPY . .
 
 # Prisma schema точно есть тут: ./prisma/schema.prisma
+RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres?schema=public" npm run prisma:generate
 RUN npm run build
 
 FROM node:20-alpine AS runner
