@@ -2,11 +2,10 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN ls -la && ls -la prisma && ls -la prisma.config.*
 RUN npm ci
 
 COPY . .
-
+RUN ls -la && ls -la prisma && ls -la prisma.config.*
 # Prisma schema точно есть тут: ./prisma/schema.prisma
 RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres?schema=public" npm run prisma:generate
 RUN npm run build
