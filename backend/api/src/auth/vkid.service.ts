@@ -140,23 +140,11 @@ export class VkIdService {
       userInfo = await this.fetchUserInfo(token.access_token);
 
       // ===== DEBUG =====
-      this.log.warn(
-        '[VK user_info raw]',
-        JSON.stringify({
-          hasPhone: !!(
-            userInfo?.user?.phone ||
-            userInfo?.phone ||
-            userInfo?.user?.phone_number
-          ),
-          phoneValue:
-            userInfo?.user?.phone ??
-            userInfo?.phone ??
-            userInfo?.user?.phone_number ??
-            null,
-          keys: Object.keys(userInfo ?? {}),
-          userKeys: Object.keys(userInfo?.user ?? {}),
-        }),
-      );
+      this.log.warn('[VK user_info raw keys]', {
+        hasUser: !!userInfo?.user,
+        userKeys: userInfo?.user ? Object.keys(userInfo.user) : null,
+        phone: userInfo?.user?.phone ?? userInfo?.phone ?? null,
+      });
     } catch (e: any) {
       // ===== DEBUG =====
       this.log.warn(

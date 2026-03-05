@@ -162,7 +162,7 @@ export default function LoginScreen() {
 
         <Button
           title="Войти через VK ID"
-          subtitle="Android • через приложение VK (нативно)"
+          subtitle="Android • через приложение VK"
           onPress={onVkPress}
           variant="primary"
           palette={palette}
