@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
 }
 
 enum UserLevel {
@@ -31,12 +31,12 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  profile          Profile?
-  workouts         Workout[]
-  records          PersonalRecord[]
-  userAchievements UserAchievement[]
-  recommendations  UserRecommendation[]
-  devices          UserDevice[]
+  profile              Profile?
+  workouts             Workout[]
+  records              PersonalRecord[]
+  userAchievements     UserAchievement[]
+  recommendations      UserRecommendation[]
+  devices              UserDevice[]
   notificationSettings NotificationSettings?
   goals                Goal[]
 
@@ -231,22 +231,22 @@ model NotificationSettings {
   userId String @id @map("user_id") @db.Uuid
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  enabled                 Boolean @default(true)
+  enabled  Boolean @default(true)
   timezone String? @db.Text // например "Europe/Amsterdam"
 
   // “давно не тренировался”
-  inactivityEnabled       Boolean @default(true) @map("inactivity_enabled")
-  inactivityDays          Int     @default(3)    @map("inactivity_days")
-  lastInactivitySentAt    DateTime? @map("last_inactivity_sent_at")
+  inactivityEnabled    Boolean   @default(true) @map("inactivity_enabled")
+  inactivityDays       Int       @default(3) @map("inactivity_days")
+  lastInactivitySentAt DateTime? @map("last_inactivity_sent_at")
 
   // “время тренировки”
-  workoutTimeEnabled      Boolean @default(false) @map("workout_time_enabled")
-  workoutTimeLocal        String?  @map("workout_time_local") // "HH:MM"
-  workoutDaysMask         Int      @default(127)  @map("workout_days_mask") // 7 бит (Mon..Sun), 127 = все дни
-  lastWorkoutTimeSentAt   DateTime? @map("last_workout_time_sent_at")
+  workoutTimeEnabled    Boolean   @default(false) @map("workout_time_enabled")
+  workoutTimeLocal      String?   @map("workout_time_local") // "HH:MM"
+  workoutDaysMask       Int       @default(127) @map("workout_days_mask") // 7 бит (Mon..Sun), 127 = все дни
+  lastWorkoutTimeSentAt DateTime? @map("last_workout_time_sent_at")
 
   // “новые советы”
-  recommendationsEnabled  Boolean @default(true)  @map("recommendations_enabled")
+  recommendationsEnabled    Boolean   @default(true) @map("recommendations_enabled")
   lastRecommendationsSentAt DateTime? @map("last_recommendations_sent_at")
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -260,17 +260,17 @@ enum GoalType {
 }
 
 model Goal {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @map("user_id") @db.Uuid
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   type       GoalType
   target     Int
-  active     Boolean  @default(true)
+  active     Boolean   @default(true)
   achievedAt DateTime? @map("achieved_at")
 
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([userId, active], map: "idx_goals_user_active")
   @@map("goals")
