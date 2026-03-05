@@ -7,7 +7,6 @@ RUN npm ci
 COPY . .
 
 # Prisma schema точно есть тут: ./prisma/schema.prisma
-RUN npm run prisma:generate
 RUN npm run build
 
 FROM node:20-alpine AS runner
