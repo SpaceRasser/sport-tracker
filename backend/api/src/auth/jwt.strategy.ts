@@ -7,11 +7,7 @@ import { ConfigService } from '@nestjs/config';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(config: ConfigService) {
     const secret = config.get<string>('JWT_ACCESS_SECRET');
-
-    if (!secret) {
-      // лучше упасть понятной ошибкой на старте, чем странно крашиться внутри passport-jwt
-      throw new Error('JWT_ACCESS_SECRET is missing (Railway Variables)');
-    }
+    if (!secret) throw new Error('JWT_ACCESS_SECRET is missing (Railway Variables)');
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -21,6 +17,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    return { userId: payload.sub };
+    // ✅ поддержка обоих форматов
+    const userId = payload?.sub ?? payload?.userId ?? null;
+    return { userId };
   }
 }

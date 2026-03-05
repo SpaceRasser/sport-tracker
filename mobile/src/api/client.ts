@@ -4,7 +4,7 @@ import * as SecureStore from "expo-secure-store";
 const baseURL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 export const api = axios.create({
-  baseURL,
+  baseURL, // например https://...up.railway.app
   timeout: 15000,
   headers: { "Content-Type": "application/json" },
 });
@@ -12,6 +12,7 @@ export const api = axios.create({
 // ключи должны совпадать с тем, как ты сохраняешь токены в AuthContext
 const ACCESS_KEY = "accessToken";
 
+// Автоматически добавляем Authorization ко всем запросам
 api.interceptors.request.use(async (config) => {
   try {
     const token = await SecureStore.getItemAsync(ACCESS_KEY);
@@ -20,7 +21,7 @@ api.interceptors.request.use(async (config) => {
       config.headers.Authorization = `Bearer ${token}`;
     }
   } catch {
-    // молча, без логов
+    // молча — не ломаем запрос
   }
   return config;
 });

@@ -1,13 +1,13 @@
 import { Body, Controller, Post, BadRequestException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { VkIdService } from './vkid.service';
 import { VkLoginDto } from './dto/vk-login.dto';
+import { AuthService } from './auth.service';
 
 @Controller('auth')
 export class VkIdController {
-  constructor(private vkid: VkIdService, private jwt: JwtService) {}
+  constructor(private vkid: VkIdService, private auth: AuthService) {}
 
-  // старый browser-flow (code + deviceId + verifier)
+  // browser-flow (PKCE): code + deviceId + verifier
   @Post('vk-id/exchange')
   async exchange(@Body() body: VkLoginDto) {
     if (!body?.code) throw new BadRequestException('code is required');
@@ -22,11 +22,12 @@ export class VkIdController {
       redirectUri: body.redirectUri,
     });
 
-    const accessToken = await this.jwt.signAsync({ userId: user.id });
-    return { accessToken, user };
+    // ✅ ЕДИНЫЙ ФОРМАТ ТОКЕНОВ ДЛЯ ВСЕХ ЛОГИНОВ
+    const tokens = await this.auth.issueTokens(user.id);
+    return { user, ...tokens };
   }
 
-  // ✅ новый native-flow (VKID SDK отдаёт accessToken напрямую)
+  // native-flow (VKID SDK): accessToken напрямую
   @Post('vk-id/token')
   async token(@Body() body: { accessToken: string }) {
     const accessTokenVk = String(body?.accessToken ?? '').trim();
@@ -34,7 +35,8 @@ export class VkIdController {
 
     const { user } = await this.vkid.loginByAccessToken(accessTokenVk);
 
-    const accessToken = await this.jwt.signAsync({ userId: user.id });
-    return { accessToken, user };
+    // ✅ ЕДИНЫЙ ФОРМАТ ТОКЕНОВ ДЛЯ ВСЕХ ЛОГИНОВ
+    const tokens = await this.auth.issueTokens(user.id);
+    return { user, ...tokens };
   }
 }
