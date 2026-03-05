@@ -26,7 +26,8 @@ export type VkIdLoginPayload = {
 };
 
 export async function authVkId(payload: VkIdLoginPayload) {
-  const res = await api.post('/auth/vk-id/exchange', payload);
+  // ✅ твой бэк: @Post('vk') => POST /auth/vk
+  const res = await api.post("/auth/vk", payload);
   return res.data as { user: any; accessToken: string; refreshToken?: string | null };
 }
 
@@ -44,7 +45,8 @@ export type SmsRequestResponse = {
 };
 
 export async function authSmsRequest(payload: SmsRequestPayload) {
-  const res = await api.post('/auth/sms/request', payload);
+  // ✅ твой бэк: @Post('sms/request') => POST /auth/sms/request
+  const res = await api.post("/auth/sms/request", payload);
   return res.data as SmsRequestResponse;
 }
 
@@ -57,7 +59,8 @@ export type SmsVerifyPayload = {
 };
 
 export async function authSmsVerify(payload: SmsVerifyPayload) {
-  const res = await api.post('/auth/sms/verify', payload);
+  // ✅ твой бэк: @Post('sms/verify') => POST /auth/sms/verify
+  const res = await api.post("/auth/sms/verify", payload);
   return res.data as { user: any; accessToken: string; refreshToken: string };
 }
 
