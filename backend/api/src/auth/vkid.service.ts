@@ -1,4 +1,3 @@
-// backend/api/src/auth/vkid.service.ts
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
@@ -45,23 +44,7 @@ export class VkIdService {
   private clientSecret = process.env.VKID_CLIENT_SECRET ?? '';
   private defaultRedirect = process.env.VKID_DEFAULT_REDIRECT_URI ?? '';
 
-  // -------------------------
-  // Phone normalization (RU + generic)
-  // -------------------------
-  private normalizeRuPhone(input?: string | null): string | null {
-    if (!input) return null;
-    const digits = String(input).replace(/\D/g, '');
-    if (!digits) return null;
-
-    if (digits.length === 11 && digits.startsWith('8')) return `+7${digits.slice(1)}`;
-    if (digits.length === 11 && digits.startsWith('7')) return `+7${digits.slice(1)}`;
-    if (digits.length === 10) return `+7${digits}`;
-
-    // fallback для странных форматов
-    if (digits.length >= 10 && digits.length <= 15) return `+${digits}`;
-    return null;
-  }
-
+  // --- phone normalizers (чтобы склейка с SMS работала) ---
   private normalizePhoneGeneric(input?: string | null): string | null {
     if (!input) return null;
     const trimmed = String(input).trim();
@@ -70,16 +53,24 @@ export class VkIdService {
     return digits.startsWith('+') ? digits : `+${digits.replace(/\D/g, '')}`;
   }
 
-  private normalizeAnyPhone(input?: string | null): string | null {
+  private normalizeRuPhone(input?: string | null): string | null {
     if (!input) return null;
+    const digits = String(input).replace(/\D/g, '');
+    if (digits.length === 11 && digits.startsWith('8')) return `+7${digits.slice(1)}`;
+    if (digits.length === 11 && digits.startsWith('7')) return `+7${digits.slice(1)}`;
+    if (digits.length === 10) return `+7${digits}`;
+    if (digits.length === 10 && digits.startsWith('9')) return `+7${digits}`;
+    if (digits.length === 11 && digits.startsWith('9')) return `+7${digits}`;
+    return null;
+  }
+
+  private normalizePhone(input?: string | null): string | null {
     const ru = this.normalizeRuPhone(input);
     return ru ?? this.normalizePhoneGeneric(input);
   }
 
-  // -------------------------
-  // VK user_info
-  // -------------------------
   private async fetchUserInfo(accessToken: string) {
+    // Некоторые реализации требуют client_id как параметр — добавим тоже
     try {
       const resp = await axios.get('https://id.vk.ru/oauth2/user_info', {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -88,7 +79,6 @@ export class VkIdService {
       });
       return resp.data;
     } catch {
-      // fallback: query param access_token
       const resp = await axios.get('https://id.vk.ru/oauth2/user_info', {
         params: { access_token: accessToken, client_id: this.clientId },
         timeout: 15000,
@@ -97,115 +87,147 @@ export class VkIdService {
     }
   }
 
-  // -------------------------
-  // Core: merge/link user (phone-first, then vkId)
-  // -------------------------
-  private async upsertOrLinkUserFromVk(input: {
+  private pickPhone(userInfo: any, idPayload: any): string | null {
+    const raw =
+      userInfo?.user?.phone ??
+      userInfo?.user?.phone_number ??
+      userInfo?.phone ??
+      userInfo?.phone_number ??
+      idPayload?.phone ??
+      idPayload?.phone_number ??
+      null;
+
+    return this.normalizePhone(raw);
+  }
+
+  private pickAvatar(userInfo: any, idPayload: any): string | null {
+    return (
+      userInfo?.user?.avatar ??
+      userInfo?.user?.avatar_url ??
+      userInfo?.user?.photo_200 ??
+      userInfo?.user?.photo_100 ??
+      userInfo?.avatar ??
+      userInfo?.avatar_url ??
+      idPayload?.picture ??
+      idPayload?.avatar ??
+      null
+    );
+  }
+
+  private pickName(userInfo: any, idPayload: any): string | null {
+    const first =
+      userInfo?.user?.first_name ??
+      userInfo?.first_name ??
+      idPayload?.first_name ??
+      idPayload?.given_name ??
+      null;
+
+    const last =
+      userInfo?.user?.last_name ??
+      userInfo?.last_name ??
+      idPayload?.last_name ??
+      idPayload?.family_name ??
+      null;
+
+    const full = [first, last].filter(Boolean).join(' ').trim();
+    return full ? full : null;
+  }
+
+  private pickVkUserId(userInfo: any, idPayload: any, tokenData: any): string | null {
+    const raw =
+      idPayload?.sub ??
+      tokenData?.user_id ??
+      tokenData?.user?.user_id ??
+      tokenData?.user?.id ??
+      userInfo?.user?.user_id ??
+      userInfo?.user_id ??
+      userInfo?.user?.id ??
+      userInfo?.id ??
+      null;
+
+    const vkId = raw != null ? String(raw).trim() : '';
+    return vkId ? vkId : null;
+  }
+
+  private async upsertOrMergeUser(params: {
     vkId: string;
-    phoneRaw?: string | null;
-    email?: string | null;
-    name?: string | null;
-    avatarUrl?: string | null;
-    // optional extra data for profile
-    sex?: any;
-    birthday?: string | null;
+    phone: string | null;
+    name: string | null;
+    email: string | null;
+    avatarUrl: string | null;
+    gender: 'male' | 'female' | 'unknown';
+    birthdate: Date | null;
   }) {
-    const vkId = String(input.vkId).trim();
-    if (!vkId) throw new BadRequestException('VKID: empty vkId');
+    const { vkId, phone, name, email, avatarUrl, gender, birthdate } = params;
 
-    const phone = this.normalizeAnyPhone(input.phoneRaw ?? null);
-    const email = input.email ?? null;
-    const name = input.name ?? null;
-    const avatarUrl = input.avatarUrl ?? null;
+    // 1) если есть phone — сначала ищем по phone (это и есть “склейка”)
+    let user =
+      (phone
+        ? await this.prisma.user.findUnique({
+            where: { phone },
+            select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
+          })
+        : null) ??
+      null;
 
-    // 1) find by phone (priority)
-    const byPhone = phone
-      ? await this.prisma.user.findUnique({
-          where: { phone },
-          select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
-        })
-      : null;
-
-    // 2) find by vkId
-    const byVk = await this.prisma.user.findUnique({
-      where: { vkId },
-      select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
-    });
-
-    // конфликт: phone принадлежит одному, vkId другому
-    if (byPhone && byVk && byPhone.id !== byVk.id) {
-      // Это редкий кейс, но в проде лучше не “сливать” данные автоматически.
-      // Можно сделать ручной merge, но это риск потери данных.
-      throw new BadRequestException('VK_PHONE_CONFLICT_DIFFERENT_USERS');
-    }
-
-    const target = byPhone ?? byVk;
-
-    let user;
-    if (target) {
-      // если нашли по телефону и vkId уже другой — конфликт
-      if (byPhone && target.vkId && target.vkId !== vkId) {
+    if (user) {
+      // конфликт: phone уже привязан к другому vkId
+      if (user.vkId && user.vkId !== vkId) {
         throw new BadRequestException('PHONE_ALREADY_LINKED_TO_ANOTHER_VK');
       }
 
-      // обновляем только пустые поля (не перетираем заполненные)
+      // привязываем vkId + заполняем пустые поля
       user = await this.prisma.user.update({
-        where: { id: target.id },
-        data: {
-          vkId: target.vkId ?? vkId, // если не было — проставим
-          phone: target.phone ?? phone ?? undefined,
-          email: target.email ?? email ?? undefined,
-          name: target.name ?? name ?? undefined,
-          avatarUrl: target.avatarUrl ?? avatarUrl ?? undefined,
-        },
-        select: { id: true, vkId: true, phone: true, email: true, name: true, avatarUrl: true },
-      });
-    } else {
-      // create new
-      user = await this.prisma.user.create({
+        where: { id: user.id },
         data: {
           vkId,
-          phone: phone ?? null,
-          email,
-          name,
-          avatarUrl,
-          profile: { create: {} },
+          // phone уже есть (мы по нему нашли) — не трогаем
+          name: user.name ?? name ?? undefined,
+          email: user.email ?? email ?? undefined,
+          avatarUrl: user.avatarUrl ?? avatarUrl ?? undefined,
         },
-        select: { id: true, vkId: true, phone: true, email: true, name: true, avatarUrl: true },
+        select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
       });
+    } else {
+      // 2) иначе ищем по vkId
+      user = await this.prisma.user.findUnique({
+        where: { vkId },
+        select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
+      });
+
+      if (user) {
+        // обновляем аккуратно (не затираем)
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            phone: user.phone ?? phone ?? undefined, // если раньше не было phone, а теперь появилось
+            name: user.name ?? name ?? undefined,
+            email: user.email ?? email ?? undefined,
+            avatarUrl: user.avatarUrl ?? avatarUrl ?? undefined,
+          },
+          select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
+        });
+      } else {
+        // 3) создаём нового
+        user = await this.prisma.user.create({
+          data: {
+            vkId,
+            phone: phone ?? null,
+            name,
+            email,
+            avatarUrl,
+            profile: { create: {} },
+          },
+          select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
+        });
+      }
     }
 
-    // -------- profile (gender + birthdate) ----------
-    const vkSex = input.sex;
-    const sexNum = typeof vkSex === 'string' ? Number(vkSex) : vkSex;
-
-    let gender: 'male' | 'female' | 'unknown' = 'unknown';
-    if (sexNum === 2) gender = 'male';
-    else if (sexNum === 1) gender = 'female';
-
-    const bdayRaw = input.birthday ? String(input.birthday) : null;
-
-    let birthdate: Date | null = null;
-    if (bdayRaw) {
-      // YYYY-MM-DD
-      if (/^\d{4}-\d{2}-\d{2}$/.test(bdayRaw)) {
-        const d = new Date(bdayRaw);
-        if (!Number.isNaN(d.getTime())) birthdate = d;
-      }
-      // DD.MM.YYYY
-      else if (/^\d{2}\.\d{2}\.\d{4}$/.test(bdayRaw)) {
-        const [dd, mm, yyyy] = bdayRaw.split('.').map((x) => Number(x));
-        const d = new Date(yyyy, mm - 1, dd);
-        if (!Number.isNaN(d.getTime())) birthdate = d;
-      }
-    }
-
+    // profile upsert (не затираем birthdate если не распарсили)
     await this.prisma.profile.upsert({
       where: { userId: user.id },
       update: {
-        // gender можно обновить всегда (если хочешь вообще не трогать — поменяй на “только если unknown”)
         gender: gender as any,
-        // birthdate НЕ затираем, если не распарсили
         birthdate: birthdate ?? undefined,
       },
       create: {
@@ -215,12 +237,9 @@ export class VkIdService {
       },
     });
 
-    return { user, normalizedPhone: phone };
+    return user;
   }
 
-  // -------------------------
-  // PKCE browser flow: code -> access_token -> user_info -> merge/link
-  // -------------------------
   async exchangeCode(params: {
     code: string;
     deviceId: string;
@@ -230,6 +249,12 @@ export class VkIdService {
     const { code, deviceId, codeVerifier } = params;
     const redirectUri = params.redirectUri || this.defaultRedirect;
 
+    this.log.debug(
+      `[exchangeCode] clientId=${this.clientId} redirectUri=${redirectUri} code=${mask(code)} deviceId=${mask(
+        deviceId,
+      )} verifier=${mask(codeVerifier)}`,
+    );
+
     if (!this.clientId || !this.clientSecret) {
       throw new BadRequestException('VKID client credentials are not configured');
     }
@@ -237,12 +262,6 @@ export class VkIdService {
     if (!code) throw new BadRequestException('code is required');
     if (!deviceId) throw new BadRequestException('deviceId is required');
     if (!codeVerifier) throw new BadRequestException('codeVerifier is required');
-
-    this.log.log(
-      `[vk exchange] redirect=${redirectUri} code=${mask(code)} deviceId=${mask(deviceId)} verifier=${mask(
-        codeVerifier,
-      )}`,
-    );
 
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -261,9 +280,10 @@ export class VkIdService {
         timeout: 15000,
       });
       token = resp.data;
+      this.log.debug(`[token] has_access=${!!token?.access_token} has_id_token=${!!token?.id_token} scope=${token?.scope ?? ''}`);
     } catch (e: any) {
       const details = e?.response?.data ?? e?.message ?? String(e);
-      this.log.error(`[vk token exchange failed] ${JSON.stringify(details)}`);
+      this.log.error(`[token] exchange failed: ${JSON.stringify(details)}`);
       throw new BadRequestException({ message: 'VKID token exchange failed', details });
     }
 
@@ -273,97 +293,73 @@ export class VkIdService {
 
     const idPayload = token.id_token ? decodeJwtPayload(token.id_token) : null;
 
-    // prefer id_token.sub, else user_info.user_id
-    let vkUserId: string | null = idPayload?.sub ? String(idPayload.sub) : null;
-
     let userInfo: any = null;
     try {
       userInfo = await this.fetchUserInfo(token.access_token);
+      this.log.warn('[VK user_info raw keys]', {
+        hasUser: !!userInfo?.user,
+        userKeys: userInfo?.user ? Object.keys(userInfo.user) : null,
+        phone: userInfo?.user?.phone ?? userInfo?.phone ?? null,
+      });
     } catch (e: any) {
-      const details = e?.response?.data ?? e?.message ?? String(e);
-      this.log.warn(`[vk user_info failed] ${JSON.stringify(details)}`);
+      this.log.warn(`[user_info] failed: ${JSON.stringify(e?.response?.data ?? e?.message ?? String(e))}`);
       userInfo = null;
     }
 
-    if (!vkUserId && userInfo) {
-      vkUserId =
-        String(
-          userInfo?.user?.user_id ??
-            userInfo?.user_id ??
-            userInfo?.user?.id ??
-            userInfo?.id ??
-            userInfo?.sub ??
-            '',
-        ).trim() || null;
-    }
+    const vkId = this.pickVkUserId(userInfo, idPayload, token);
+    if (!vkId) throw new BadRequestException({ message: 'VKID: could not read user id', details: { idPayload, userInfo } });
 
-    if (!vkUserId) {
-      throw new BadRequestException({
-        message: 'VKID: could not read user id',
-        details: { idPayload, userInfo },
-      });
-    }
-
-    const firstName =
-      userInfo?.user?.first_name ?? userInfo?.first_name ?? idPayload?.given_name ?? idPayload?.first_name ?? '';
-    const lastName =
-      userInfo?.user?.last_name ?? userInfo?.last_name ?? idPayload?.family_name ?? idPayload?.last_name ?? '';
-    const fullName = `${firstName} ${lastName}`.trim() || null;
-
+    const name = this.pickName(userInfo, idPayload);
     const email = userInfo?.user?.email ?? userInfo?.email ?? idPayload?.email ?? null;
+    const phone = this.pickPhone(userInfo, idPayload);
+    const avatarUrl = this.pickAvatar(userInfo, idPayload);
 
-    const phoneRaw = userInfo?.user?.phone ?? userInfo?.phone ?? null;
+    // gender + birthday (если есть)
+    const vkSex = userInfo?.user?.sex;
+    const sexNum = typeof vkSex === 'string' ? Number(vkSex) : vkSex;
+    let gender: 'male' | 'female' | 'unknown' = 'unknown';
+    if (sexNum === 2) gender = 'male';
+    else if (sexNum === 1) gender = 'female';
 
-    const avatarUrl =
-      userInfo?.user?.avatar ??
-      userInfo?.user?.avatar_url ??
-      userInfo?.avatar ??
-      userInfo?.avatar_url ??
-      idPayload?.picture ??
-      null;
+    const bdayRaw: string | null = userInfo?.user?.birthday ? String(userInfo.user.birthday) : null;
+    let birthdate: Date | null = null;
+    if (bdayRaw) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(bdayRaw)) {
+        const d = new Date(bdayRaw);
+        if (!Number.isNaN(d.getTime())) birthdate = d;
+      } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(bdayRaw)) {
+        const [dd, mm, yyyy] = bdayRaw.split('.').map((x) => Number(x));
+        const d = new Date(yyyy, mm - 1, dd);
+        if (!Number.isNaN(d.getTime())) birthdate = d;
+      }
+    }
 
-    // birthday/sex can be present depending on scopes
-    const sex = userInfo?.user?.sex ?? userInfo?.sex ?? null;
-    const birthday = userInfo?.user?.birthday ?? userInfo?.birthday ?? null;
+    this.log.debug(`[mapped] vkId=${vkId} phone=${phone ?? '—'} email=${email ?? '—'} name=${name ?? '—'} avatar=${avatarUrl ? 'yes' : 'no'}`);
 
-    // DEBUG (safe)
-    this.log.log(
-      `[vk mapped] vkId=${vkUserId} phone=${phoneRaw ? mask(String(phoneRaw), 3, 2) : '—'} email=${
-        email ? 'yes' : 'no'
-      } avatar=${avatarUrl ? 'yes' : 'no'}`,
-    );
-
-    const { user, normalizedPhone } = await this.upsertOrLinkUserFromVk({
-      vkId: String(vkUserId),
-      phoneRaw: phoneRaw ? String(phoneRaw) : null,
+    const user = await this.upsertOrMergeUser({
+      vkId,
+      phone,
+      name,
       email,
-      name: fullName,
       avatarUrl,
-      sex,
-      birthday: birthday ? String(birthday) : null,
+      gender,
+      birthdate,
     });
 
-    this.log.log(
-      `[vk linked] userId=${user.id} vkId=${user.vkId} phone=${normalizedPhone ? mask(normalizedPhone, 3, 2) : '—'}`,
-    );
-
-    return {
-      user,
-      vkAccessToken: token.access_token,
-      vkIdToken: token.id_token ?? null,
-    };
+    return { user, vkAccessToken: token.access_token, vkIdToken: token.id_token ?? null };
   }
 
-  // -------------------------
-  // Native flow: accessToken already provided by VK SDK
-  // -------------------------
   async loginByAccessToken(accessToken: string) {
-    const at = String(accessToken ?? '').trim();
-    if (!at) throw new BadRequestException('accessToken is required');
+    if (!accessToken) throw new BadRequestException('accessToken is required');
 
     let userInfo: any;
     try {
-      userInfo = await this.fetchUserInfo(at);
+      userInfo = await this.fetchUserInfo(accessToken);
+      this.log.warn('[VK user_info raw keys]', {
+        hasUser: !!userInfo?.user,
+        userKeys: userInfo?.user ? Object.keys(userInfo.user) : null,
+        phone: userInfo?.user?.phone ?? userInfo?.phone ?? null,
+      });
     } catch (e: any) {
       throw new BadRequestException({
         message: 'VKID user_info failed',
@@ -371,54 +367,45 @@ export class VkIdService {
       });
     }
 
-    const vkUserId =
-      String(userInfo?.user?.user_id ?? userInfo?.user_id ?? userInfo?.id ?? '').trim() || null;
-
-    if (!vkUserId) {
-      throw new BadRequestException({
-        message: 'VKID: no user_id in user_info',
-        details: userInfo,
-      });
+    const vkId = String(userInfo?.user?.user_id ?? userInfo?.user_id ?? userInfo?.id ?? '').trim();
+    if (!vkId) {
+      throw new BadRequestException({ message: 'VKID: no user_id in user_info', details: userInfo });
     }
 
-    const firstName = userInfo?.user?.first_name ?? userInfo?.first_name ?? '';
-    const lastName = userInfo?.user?.last_name ?? userInfo?.last_name ?? '';
-    const fullName = `${firstName} ${lastName}`.trim() || null;
-
+    const idPayload = null;
+    const name = this.pickName(userInfo, idPayload);
     const email = userInfo?.user?.email ?? userInfo?.email ?? null;
-    const phoneRaw = userInfo?.user?.phone ?? userInfo?.phone ?? null;
+    const phone = this.pickPhone(userInfo, idPayload);
+    const avatarUrl = this.pickAvatar(userInfo, idPayload);
 
-    const avatarUrl =
-      userInfo?.user?.avatar ??
-      userInfo?.user?.avatar_url ??
-      userInfo?.avatar ??
-      userInfo?.avatar_url ??
-      null;
+    const vkSex = userInfo?.user?.sex;
+    const sexNum = typeof vkSex === 'string' ? Number(vkSex) : vkSex;
+    let gender: 'male' | 'female' | 'unknown' = 'unknown';
+    if (sexNum === 2) gender = 'male';
+    else if (sexNum === 1) gender = 'female';
 
-    const sex = userInfo?.user?.sex ?? userInfo?.sex ?? null;
-    const birthday = userInfo?.user?.birthday ?? userInfo?.birthday ?? null;
+    const bdayRaw: string | null = userInfo?.user?.birthday ? String(userInfo.user.birthday) : null;
+    let birthdate: Date | null = null;
+    if (bdayRaw) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(bdayRaw)) {
+        const d = new Date(bdayRaw);
+        if (!Number.isNaN(d.getTime())) birthdate = d;
+      } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(bdayRaw)) {
+        const [dd, mm, yyyy] = bdayRaw.split('.').map((x) => Number(x));
+        const d = new Date(yyyy, mm - 1, dd);
+        if (!Number.isNaN(d.getTime())) birthdate = d;
+      }
+    }
 
-    this.log.log(
-      `[vk native mapped] vkId=${vkUserId} phone=${phoneRaw ? mask(String(phoneRaw), 3, 2) : '—'} email=${
-        email ? 'yes' : 'no'
-      } avatar=${avatarUrl ? 'yes' : 'no'}`,
-    );
-
-    const { user, normalizedPhone } = await this.upsertOrLinkUserFromVk({
-      vkId: String(vkUserId),
-      phoneRaw: phoneRaw ? String(phoneRaw) : null,
+    const user = await this.upsertOrMergeUser({
+      vkId,
+      phone,
+      name,
       email,
-      name: fullName,
       avatarUrl,
-      sex,
-      birthday: birthday ? String(birthday) : null,
+      gender,
+      birthdate,
     });
-
-    this.log.log(
-      `[vk native linked] userId=${user.id} vkId=${user.vkId} phone=${
-        normalizedPhone ? mask(normalizedPhone, 3, 2) : '—'
-      }`,
-    );
 
     return { user };
   }
