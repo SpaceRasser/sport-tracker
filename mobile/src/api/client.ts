@@ -1,7 +1,8 @@
-import axios from 'axios';
-import { CONFIG } from '../config';
+import axios from "axios";
+
+const baseURL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 export const api = axios.create({
-  baseURL: CONFIG.API_BASE_URL,
-  timeout: 10000,
+  baseURL, // например https://....up.railway.app
+  timeout: 20000,
 });
