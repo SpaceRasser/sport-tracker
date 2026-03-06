@@ -14,7 +14,6 @@ import {
   DemoRegisterPayload,
 } from '../api/authApi';
 
-// ✅ Native VKID login (Android SDK)
 import { vkIdNativeLogin } from '../integrations/vkidNative';
 
 type AuthState = {
@@ -30,13 +29,9 @@ type AuthContextValue = AuthState & {
   signInDemoRegister: (payload: DemoRegisterPayload) => Promise<void>;
   signInDemoLogin: (payload: DemoLoginPayload) => Promise<void>;
 
-  // VK ID (browser flow)
   signInVk: (payload: VkIdLoginPayload) => Promise<void>;
-
-  // ✅ VK ID (native flow)
   signInVkNative: () => Promise<void>;
 
-  // SMS
   signInSms: (payload: SmsVerifyPayload) => Promise<void>;
 
   signOut: () => Promise<void>;
@@ -44,7 +39,6 @@ type AuthContextValue = AuthState & {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// helper: безопасно сохранить токены (VK ID может не давать refresh)
 async function persistTokens(accessToken: string, refreshToken: string | null | undefined) {
   await setTokens(accessToken, refreshToken ?? '');
 }
@@ -142,7 +136,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
 
-    // ✅ VK ID browser flow (code + deviceId + verifier + redirect)
     signInVk: async (payload: VkIdLoginPayload) => {
       setState((s) => ({ ...s, isLoading: true }));
       try {
@@ -160,17 +153,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
 
-    // ✅ VK ID native flow (VKID SDK -> backend -> JWT)
     signInVkNative: async () => {
       setState((s) => ({ ...s, isLoading: true }));
       try {
-        const data = await vkIdNativeLogin(); // { accessToken, user }
-        await persistTokens(data.accessToken, null); // refresh нет
+        const data = await vkIdNativeLogin();
+
+        await persistTokens(data.accessToken, data.refreshToken ?? null);
+
         setState({
           accessToken: data.accessToken,
-          refreshToken: null,
+          refreshToken: data.refreshToken ?? null,
           isLoading: false,
         });
+
+        console.log('VKID native result:', data.vkid);
       } catch (e) {
         await clearTokens();
         setState({ accessToken: null, refreshToken: null, isLoading: false });
