@@ -6,7 +6,7 @@ type TokenResponse = {
   access_token?: string;
   refresh_token?: string;
   expires_in?: number;
-  id_token?: string; // JWT
+  id_token?: string;
   token_type?: string;
   scope?: string;
   error?: string;
@@ -34,6 +34,39 @@ function mask(s: string | null | undefined, keepStart = 6, keepEnd = 4) {
   return `${v.slice(0, keepStart)}...${v.slice(-keepEnd)}`;
 }
 
+// VK обычно отдаёт телефон без "+", например "7999...."
+function normalizeRuPhoneFromVk(raw: string | null | undefined): string | null {
+  const v = String(raw ?? '').trim();
+  if (!v) return null;
+  const digits = v.replace(/\D/g, '');
+
+  // ожидаем что-то типа 7999... или 8999... или 999...
+  if (digits.length === 11 && digits.startsWith('8')) return `+7${digits.slice(1)}`;
+  if (digits.length === 11 && digits.startsWith('7')) return `+7${digits.slice(1)}`;
+  if (digits.length === 10 && digits.startsWith('9')) return `+7${digits}`;
+  // fallback: просто как международный
+  if (digits.length >= 10) return `+${digits}`;
+  return null;
+}
+
+function parseBirthdate(bdayRaw: string | null | undefined): Date | null {
+  const s = String(bdayRaw ?? '').trim();
+  if (!s) return null;
+
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  // DD.MM.YYYY
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(s)) {
+    const [dd, mm, yyyy] = s.split('.').map((x) => Number(x));
+    const d = new Date(yyyy, mm - 1, dd);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
 @Injectable()
 export class VkIdService {
   private log = new Logger(VkIdService.name);
@@ -44,33 +77,8 @@ export class VkIdService {
   private clientSecret = process.env.VKID_CLIENT_SECRET ?? '';
   private defaultRedirect = process.env.VKID_DEFAULT_REDIRECT_URI ?? '';
 
-  // --- phone normalizers (чтобы склейка с SMS работала) ---
-  private normalizePhoneGeneric(input?: string | null): string | null {
-    if (!input) return null;
-    const trimmed = String(input).trim();
-    const digits = trimmed.replace(/[^\d+]/g, '');
-    if (!digits) return null;
-    return digits.startsWith('+') ? digits : `+${digits.replace(/\D/g, '')}`;
-  }
-
-  private normalizeRuPhone(input?: string | null): string | null {
-    if (!input) return null;
-    const digits = String(input).replace(/\D/g, '');
-    if (digits.length === 11 && digits.startsWith('8')) return `+7${digits.slice(1)}`;
-    if (digits.length === 11 && digits.startsWith('7')) return `+7${digits.slice(1)}`;
-    if (digits.length === 10) return `+7${digits}`;
-    if (digits.length === 10 && digits.startsWith('9')) return `+7${digits}`;
-    if (digits.length === 11 && digits.startsWith('9')) return `+7${digits}`;
-    return null;
-  }
-
-  private normalizePhone(input?: string | null): string | null {
-    const ru = this.normalizeRuPhone(input);
-    return ru ?? this.normalizePhoneGeneric(input);
-  }
-
   private async fetchUserInfo(accessToken: string) {
-    // Некоторые реализации требуют client_id как параметр — добавим тоже
+    // VK user_info бывает капризным по способу передачи токена — оставляем 2 варианта
     try {
       const resp = await axios.get('https://id.vk.ru/oauth2/user_info', {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -87,165 +95,149 @@ export class VkIdService {
     }
   }
 
-  private pickPhone(userInfo: any, idPayload: any): string | null {
-    const raw =
-      userInfo?.user?.phone ??
-      userInfo?.user?.phone_number ??
-      userInfo?.phone ??
-      userInfo?.phone_number ??
-      idPayload?.phone ??
-      idPayload?.phone_number ??
-      null;
-
-    return this.normalizePhone(raw);
+  private mapGender(vkSex: any): 'male' | 'female' | 'unknown' {
+    const n = typeof vkSex === 'string' ? Number(vkSex) : vkSex;
+    if (n === 2) return 'male';
+    if (n === 1) return 'female';
+    return 'unknown';
   }
 
-  private pickAvatar(userInfo: any, idPayload: any): string | null {
-    return (
-      userInfo?.user?.avatar ??
-      userInfo?.user?.avatar_url ??
-      userInfo?.user?.photo_200 ??
-      userInfo?.user?.photo_100 ??
-      userInfo?.avatar ??
-      userInfo?.avatar_url ??
-      idPayload?.picture ??
-      idPayload?.avatar ??
-      null
-    );
-  }
-
-  private pickName(userInfo: any, idPayload: any): string | null {
-    const first =
-      userInfo?.user?.first_name ??
-      userInfo?.first_name ??
-      idPayload?.first_name ??
-      idPayload?.given_name ??
-      null;
-
-    const last =
-      userInfo?.user?.last_name ??
-      userInfo?.last_name ??
-      idPayload?.last_name ??
-      idPayload?.family_name ??
-      null;
-
-    const full = [first, last].filter(Boolean).join(' ').trim();
-    return full ? full : null;
-  }
-
-  private pickVkUserId(userInfo: any, idPayload: any, tokenData: any): string | null {
-    const raw =
-      idPayload?.sub ??
-      tokenData?.user_id ??
-      tokenData?.user?.user_id ??
-      tokenData?.user?.id ??
-      userInfo?.user?.user_id ??
-      userInfo?.user_id ??
-      userInfo?.user?.id ??
-      userInfo?.id ??
-      null;
-
-    const vkId = raw != null ? String(raw).trim() : '';
-    return vkId ? vkId : null;
-  }
-
-  private async upsertOrMergeUser(params: {
+  /**
+   * ✅ ЕДИНАЯ ФУНКЦИЯ СКЛЕЙКИ
+   * 1) если есть phone -> ищем пользователя по phone
+   *    - если нашли и vkId другой -> конфликт
+   *    - иначе привязываем vkId к этому user.id
+   * 2) если phone нет -> ищем по vkId
+   * 3) если нигде нет -> создаём нового
+   *
+   * Поля не затираем: заполняем только если у пользователя null
+   */
+  private async upsertMergedUserFromVk(input: {
     vkId: string;
-    phone: string | null;
-    name: string | null;
-    email: string | null;
-    avatarUrl: string | null;
-    gender: 'male' | 'female' | 'unknown';
-    birthdate: Date | null;
+    name?: string | null;
+    email?: string | null;
+    phoneRaw?: string | null;
+    avatarUrl?: string | null;
+    sex?: any;
+    birthday?: string | null;
   }) {
-    const { vkId, phone, name, email, avatarUrl, gender, birthdate } = params;
+    const phone = normalizeRuPhoneFromVk(input.phoneRaw);
+    const gender = this.mapGender(input.sex);
+    const birthdate = parseBirthdate(input.birthday);
 
-    // 1) если есть phone — сначала ищем по phone (это и есть “склейка”)
-    let user =
-      (phone
-        ? await this.prisma.user.findUnique({
-            where: { phone },
-            select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
-          })
-        : null) ??
-      null;
-
-    if (user) {
-      // конфликт: phone уже привязан к другому vkId
-      if (user.vkId && user.vkId !== vkId) {
-        throw new BadRequestException('PHONE_ALREADY_LINKED_TO_ANOTHER_VK');
-      }
-
-      // привязываем vkId + заполняем пустые поля
-      user = await this.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          vkId,
-          // phone уже есть (мы по нему нашли) — не трогаем
-          name: user.name ?? name ?? undefined,
-          email: user.email ?? email ?? undefined,
-          avatarUrl: user.avatarUrl ?? avatarUrl ?? undefined,
-        },
-        select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
-      });
-    } else {
-      // 2) иначе ищем по vkId
-      user = await this.prisma.user.findUnique({
-        where: { vkId },
-        select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
-      });
-
-      if (user) {
-        // обновляем аккуратно (не затираем)
-        user = await this.prisma.user.update({
-          where: { id: user.id },
-          data: {
-            phone: user.phone ?? phone ?? undefined, // если раньше не было phone, а теперь появилось
-            name: user.name ?? name ?? undefined,
-            email: user.email ?? email ?? undefined,
-            avatarUrl: user.avatarUrl ?? avatarUrl ?? undefined,
-          },
-          select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
-        });
-      } else {
-        // 3) создаём нового
-        user = await this.prisma.user.create({
-          data: {
-            vkId,
-            phone: phone ?? null,
-            name,
-            email,
-            avatarUrl,
-            profile: { create: {} },
-          },
-          select: { id: true, phone: true, vkId: true, name: true, email: true, avatarUrl: true },
-        });
-      }
-    }
-
-    // profile upsert (не затираем birthdate если не распарсили)
-    await this.prisma.profile.upsert({
-      where: { userId: user.id },
-      update: {
-        gender: gender as any,
-        birthdate: birthdate ?? undefined,
-      },
-      create: {
-        userId: user.id,
-        gender: gender as any,
-        birthdate,
-      },
+    // debug: какие поля реально пришли (без персональных утечек)
+    this.log.warn('[VK mapped]', {
+      vkId: input.vkId,
+      hasPhone: !!phone,
+      phoneMasked: phone ? mask(phone, 3, 2) : null,
+      hasEmail: !!input.email,
+      hasAvatar: !!input.avatarUrl,
+      hasName: !!input.name,
+      gender,
+      birthday: input.birthday ?? null,
     });
 
-    return user;
+    return this.prisma.$transaction(async (tx) => {
+      // 1) ищем по телефону (если он есть)
+      let user =
+        (phone
+          ? await tx.user.findUnique({
+              where: { phone },
+              select: {
+                id: true,
+                phone: true,
+                vkId: true,
+                name: true,
+                email: true,
+                avatarUrl: true,
+              },
+            })
+          : null) ??
+        // 2) иначе по vkId
+        (await tx.user.findUnique({
+          where: { vkId: input.vkId },
+          select: {
+            id: true,
+            phone: true,
+            vkId: true,
+            name: true,
+            email: true,
+            avatarUrl: true,
+          },
+        }));
+
+      if (user) {
+        // конфликт: телефон уже у другого vk
+        if (phone && user.vkId && user.vkId !== input.vkId) {
+          throw new BadRequestException('PHONE_ALREADY_LINKED_TO_ANOTHER_VK');
+        }
+
+        user = await tx.user.update({
+          where: { id: user.id },
+          data: {
+            vkId: input.vkId,
+            phone: user.phone ?? phone ?? undefined,
+            email: user.email ?? input.email ?? undefined,
+            name: user.name ?? input.name ?? undefined,
+            avatarUrl: user.avatarUrl ?? input.avatarUrl ?? undefined,
+          },
+          select: {
+            id: true,
+            phone: true,
+            vkId: true,
+            name: true,
+            email: true,
+            avatarUrl: true,
+          },
+        });
+      } else {
+        user = await tx.user.create({
+          data: {
+            vkId: input.vkId,
+            phone: phone ?? null,
+            email: input.email ?? null,
+            name: input.name ?? null,
+            avatarUrl: input.avatarUrl ?? null,
+            profile: { create: {} },
+          },
+          select: {
+            id: true,
+            phone: true,
+            vkId: true,
+            name: true,
+            email: true,
+            avatarUrl: true,
+          },
+        });
+      }
+
+      // профиль: обновляем аккуратно (не перетираем руками введённое)
+      const existingProfile = await tx.profile.findUnique({
+        where: { userId: user.id },
+        select: { userId: true, gender: true, birthdate: true },
+      });
+
+      const shouldSetGender = gender !== 'unknown' && (!existingProfile || existingProfile.gender === 'unknown');
+      const shouldSetBirthdate = !!birthdate && (!existingProfile || !existingProfile.birthdate);
+
+      await tx.profile.upsert({
+        where: { userId: user.id },
+        update: {
+          gender: shouldSetGender ? (gender as any) : undefined,
+          birthdate: shouldSetBirthdate ? birthdate! : undefined,
+        },
+        create: {
+          userId: user.id,
+          gender: shouldSetGender ? (gender as any) : ('unknown' as any),
+          birthdate: shouldSetBirthdate ? birthdate : null,
+        },
+      });
+
+      return { user };
+    });
   }
 
-  async exchangeCode(params: {
-    code: string;
-    deviceId: string;
-    codeVerifier: string;
-    redirectUri?: string;
-  }) {
+  async exchangeCode(params: { code: string; deviceId: string; codeVerifier: string; redirectUri?: string }) {
     const { code, deviceId, codeVerifier } = params;
     const redirectUri = params.redirectUri || this.defaultRedirect;
 
@@ -280,7 +272,6 @@ export class VkIdService {
         timeout: 15000,
       });
       token = resp.data;
-      this.log.debug(`[token] has_access=${!!token?.access_token} has_id_token=${!!token?.id_token} scope=${token?.scope ?? ''}`);
     } catch (e: any) {
       const details = e?.response?.data ?? e?.message ?? String(e);
       this.log.error(`[token] exchange failed: ${JSON.stringify(details)}`);
@@ -306,44 +297,42 @@ export class VkIdService {
       userInfo = null;
     }
 
-    const vkId = this.pickVkUserId(userInfo, idPayload, token);
-    if (!vkId) throw new BadRequestException({ message: 'VKID: could not read user id', details: { idPayload, userInfo } });
+    const vkUserId =
+      String(
+        idPayload?.sub ??
+          userInfo?.user?.user_id ??
+          userInfo?.user_id ??
+          userInfo?.user?.id ??
+          userInfo?.id ??
+          '',
+      ).trim() || null;
 
-    const name = this.pickName(userInfo, idPayload);
-    const email = userInfo?.user?.email ?? userInfo?.email ?? idPayload?.email ?? null;
-    const phone = this.pickPhone(userInfo, idPayload);
-    const avatarUrl = this.pickAvatar(userInfo, idPayload);
-
-    // gender + birthday (если есть)
-    const vkSex = userInfo?.user?.sex;
-    const sexNum = typeof vkSex === 'string' ? Number(vkSex) : vkSex;
-    let gender: 'male' | 'female' | 'unknown' = 'unknown';
-    if (sexNum === 2) gender = 'male';
-    else if (sexNum === 1) gender = 'female';
-
-    const bdayRaw: string | null = userInfo?.user?.birthday ? String(userInfo.user.birthday) : null;
-    let birthdate: Date | null = null;
-    if (bdayRaw) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(bdayRaw)) {
-        const d = new Date(bdayRaw);
-        if (!Number.isNaN(d.getTime())) birthdate = d;
-      } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(bdayRaw)) {
-        const [dd, mm, yyyy] = bdayRaw.split('.').map((x) => Number(x));
-        const d = new Date(yyyy, mm - 1, dd);
-        if (!Number.isNaN(d.getTime())) birthdate = d;
-      }
+    if (!vkUserId) {
+      throw new BadRequestException({
+        message: 'VKID: could not read user id',
+        details: { idPayload, userInfo },
+      });
     }
 
-    this.log.debug(`[mapped] vkId=${vkId} phone=${phone ?? '—'} email=${email ?? '—'} name=${name ?? '—'} avatar=${avatarUrl ? 'yes' : 'no'}`);
+    const firstName = userInfo?.user?.first_name ?? idPayload?.given_name ?? null;
+    const lastName = userInfo?.user?.last_name ?? idPayload?.family_name ?? null;
+    const name = [firstName, lastName].filter(Boolean).join(' ').trim() || null;
 
-    const user = await this.upsertOrMergeUser({
-      vkId,
-      phone,
+    const email = userInfo?.user?.email ?? idPayload?.email ?? null;
+    const phoneRaw = userInfo?.user?.phone ?? null;
+    const avatarUrl = userInfo?.user?.avatar ?? idPayload?.picture ?? null;
+
+    const sex = userInfo?.user?.sex ?? null;
+    const birthday = userInfo?.user?.birthday ?? null;
+
+    const { user } = await this.upsertMergedUserFromVk({
+      vkId: vkUserId,
       name,
       email,
+      phoneRaw,
       avatarUrl,
-      gender,
-      birthdate,
+      sex,
+      birthday,
     });
 
     return { user, vkAccessToken: token.access_token, vkIdToken: token.id_token ?? null };
@@ -367,44 +356,32 @@ export class VkIdService {
       });
     }
 
-    const vkId = String(userInfo?.user?.user_id ?? userInfo?.user_id ?? userInfo?.id ?? '').trim();
-    if (!vkId) {
+    const vkUserId =
+      String(userInfo?.user?.user_id ?? userInfo?.user_id ?? userInfo?.id ?? '').trim() || null;
+
+    if (!vkUserId) {
       throw new BadRequestException({ message: 'VKID: no user_id in user_info', details: userInfo });
     }
 
-    const idPayload = null;
-    const name = this.pickName(userInfo, idPayload);
-    const email = userInfo?.user?.email ?? userInfo?.email ?? null;
-    const phone = this.pickPhone(userInfo, idPayload);
-    const avatarUrl = this.pickAvatar(userInfo, idPayload);
+    const firstName = userInfo?.user?.first_name ?? null;
+    const lastName = userInfo?.user?.last_name ?? null;
+    const name = [firstName, lastName].filter(Boolean).join(' ').trim() || null;
 
-    const vkSex = userInfo?.user?.sex;
-    const sexNum = typeof vkSex === 'string' ? Number(vkSex) : vkSex;
-    let gender: 'male' | 'female' | 'unknown' = 'unknown';
-    if (sexNum === 2) gender = 'male';
-    else if (sexNum === 1) gender = 'female';
+    const email = userInfo?.user?.email ?? null;
+    const phoneRaw = userInfo?.user?.phone ?? null;
+    const avatarUrl = userInfo?.user?.avatar ?? null;
 
-    const bdayRaw: string | null = userInfo?.user?.birthday ? String(userInfo.user.birthday) : null;
-    let birthdate: Date | null = null;
-    if (bdayRaw) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(bdayRaw)) {
-        const d = new Date(bdayRaw);
-        if (!Number.isNaN(d.getTime())) birthdate = d;
-      } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(bdayRaw)) {
-        const [dd, mm, yyyy] = bdayRaw.split('.').map((x) => Number(x));
-        const d = new Date(yyyy, mm - 1, dd);
-        if (!Number.isNaN(d.getTime())) birthdate = d;
-      }
-    }
+    const sex = userInfo?.user?.sex ?? null;
+    const birthday = userInfo?.user?.birthday ?? null;
 
-    const user = await this.upsertOrMergeUser({
-      vkId,
-      phone,
+    const { user } = await this.upsertMergedUserFromVk({
+      vkId: vkUserId,
       name,
       email,
+      phoneRaw,
       avatarUrl,
-      gender,
-      birthdate,
+      sex,
+      birthday,
     });
 
     return { user };
