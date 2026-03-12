@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   ActivityIndicator,
@@ -20,6 +20,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../api/client";
 import { getAchievements } from "../api/achievementsApi";
+import { useOnboarding } from "../onboarding/OnboardingContext";
 
 type Field =
   | {
@@ -90,7 +91,7 @@ function formatLocalShort(iso: string) {
   if (Number.isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} • ${pad(
-    d.getHours()
+    d.getHours(),
   )}:${pad(d.getMinutes())}`;
 }
 
@@ -100,13 +101,54 @@ function minutesToSecondsStr(minStr: string) {
   return Math.round(m * 60);
 }
 
-function InfoBadge({
-  icon,
-  label,
-}: {
-  icon: React.ReactNode;
-  label: string;
-}) {
+function getAchievementCode(value: any): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value?.code === "string") return value.code.trim();
+  if (typeof value?.achievementCode === "string")
+    return value.achievementCode.trim();
+  if (typeof value?.id === "string") return value.id.trim();
+  return "";
+}
+
+function getAchievementLabel(value: any): string {
+  if (typeof value?.title === "string" && value.title.trim())
+    return value.title.trim();
+  if (typeof value?.name === "string" && value.name.trim())
+    return value.name.trim();
+  if (typeof value?.label === "string" && value.label.trim())
+    return value.label.trim();
+  return "";
+}
+
+function resolveGrantedTitles(
+  granted: any[],
+  allAchievements?: any[],
+): string[] {
+  const labelMap = new Map<string, string>();
+
+  for (const item of allAchievements ?? []) {
+    const code = getAchievementCode(item);
+    const label = getAchievementLabel(item) || code;
+    if (code) {
+      labelMap.set(code, label);
+    }
+  }
+
+  return granted.map((item, index) => {
+    const directLabel = getAchievementLabel(item);
+    const code = getAchievementCode(item);
+
+    const resolved =
+      directLabel ||
+      (code ? labelMap.get(code) : "") ||
+      code ||
+      `Новое достижение ${index + 1}`;
+
+    return resolved.trim();
+  });
+}
+
+function InfoBadge({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <View style={styles.infoBadge}>
       {icon}
@@ -128,7 +170,9 @@ function SummaryStat({
 }) {
   return (
     <View style={styles.summaryStat}>
-      <View style={[styles.summaryStatIcon, { backgroundColor: tint }]}>{icon}</View>
+      <View style={[styles.summaryStatIcon, { backgroundColor: tint }]}>
+        {icon}
+      </View>
       <Text style={styles.summaryStatValue}>{value}</Text>
       <Text style={styles.summaryStatLabel}>{label}</Text>
     </View>
@@ -167,13 +211,19 @@ function PrimaryButton({
           {loading ? (
             <ActivityIndicator color={palette.purpleDark} />
           ) : (
-            <Ionicons name="add-circle-outline" size={18} color={palette.purpleDark} />
+            <Ionicons
+              name="add-circle-outline"
+              size={18}
+              color={palette.purpleDark}
+            />
           )}
         </View>
 
         <View style={{ flex: 1 }}>
           <Text style={styles.primaryButtonTitle}>{title}</Text>
-          {subtitle ? <Text style={styles.primaryButtonSub}>{subtitle}</Text> : null}
+          {subtitle ? (
+            <Text style={styles.primaryButtonSub}>{subtitle}</Text>
+          ) : null}
         </View>
       </LinearGradient>
     </Pressable>
@@ -188,7 +238,10 @@ function SecondaryButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flex: 1 }]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flex: 1 }]}
+    >
       <View style={styles.secondaryButton}>
         <Text style={styles.secondaryButtonText}>{title}</Text>
       </View>
@@ -210,7 +263,9 @@ function FieldInput({
       <View style={{ marginBottom: 12 }}>
         <Text style={styles.label}>
           {field.label}
-          {field.required ? <Text style={{ color: palette.danger }}> *</Text> : null}
+          {field.required ? (
+            <Text style={{ color: palette.danger }}> *</Text>
+          ) : null}
         </Text>
 
         <View style={styles.chipRow}>
@@ -229,7 +284,12 @@ function FieldInput({
                   },
                 ]}
               >
-                <Text style={[styles.chipText, { color: active ? "#FFFFFF" : palette.text }]}>
+                <Text
+                  style={[
+                    styles.chipText,
+                    { color: active ? "#FFFFFF" : palette.text },
+                  ]}
+                >
                   {opt.label}
                 </Text>
               </Pressable>
@@ -247,12 +307,16 @@ function FieldInput({
       <Text style={styles.label}>
         {field.label}
         {field.unit ? ` (${field.unit})` : ""}
-        {field.required ? <Text style={{ color: palette.danger }}> *</Text> : null}
+        {field.required ? (
+          <Text style={{ color: palette.danger }}> *</Text>
+        ) : null}
       </Text>
 
       <TextInput
         value={value}
-        onChangeText={(v) => onChange(field.type === "number" ? clampNumStr(v) : v)}
+        onChangeText={(v) =>
+          onChange(field.type === "number" ? clampNumStr(v) : v)
+        }
         placeholder={field.placeholder ?? ""}
         placeholderTextColor={palette.subtext}
         keyboardType={keyboardType as any}
@@ -276,7 +340,12 @@ function BottomSheet({
   const { height } = Dimensions.get("window");
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <View style={styles.sheetRoot}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
         <View
@@ -289,7 +358,10 @@ function BottomSheet({
         >
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{title}</Text>
-            <Pressable onPress={onClose} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+            <Pressable
+              onPress={onClose}
+              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+            >
               <Text style={styles.sheetClose}>✕</Text>
             </Pressable>
           </View>
@@ -300,7 +372,72 @@ function BottomSheet({
   );
 }
 
+function CoachCard({
+  title,
+  text,
+  primaryLabel = "Понятно",
+  onNext,
+  onSkip,
+}: {
+  title: string;
+  text: string;
+  primaryLabel?: string;
+  onNext: () => void;
+  onSkip?: () => void;
+}) {
+  return (
+    <View style={styles.coachCard}>
+      <LinearGradient
+        colors={["rgba(109,76,255,0.14)", "rgba(123,97,255,0.08)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View style={styles.coachHeader}>
+        <View style={styles.coachIcon}>
+          <Ionicons name="sparkles-outline" size={18} color={palette.purple} />
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.coachTitle}>{title}</Text>
+          <Text style={styles.coachText}>{text}</Text>
+        </View>
+      </View>
+
+      <View style={styles.coachActions}>
+        {onSkip ? (
+          <Pressable
+            onPress={onSkip}
+            style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1, flex: 1 }]}
+          >
+            <View style={styles.coachGhostBtn}>
+              <Text style={styles.coachGhostBtnText}>Пропустить</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
+        <Pressable
+          onPress={onNext}
+          style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flex: 1 }]}
+        >
+          <LinearGradient
+            colors={[palette.purple, palette.purpleDark]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.coachPrimaryBtn}
+          >
+            <Text style={styles.coachPrimaryBtnText}>{primaryLabel}</Text>
+          </LinearGradient>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function AddWorkoutScreen({ navigation, route }: any) {
+  const { step, nextStep, skipOnboarding } = useOnboarding();
+
   const prefill = route?.params?.prefill ?? null;
 
   const [loading, setLoading] = useState(true);
@@ -325,9 +462,23 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
   const [successOpen, setSuccessOpen] = useState(false);
   const [grantedTitles, setGrantedTitles] = useState<string[]>([]);
 
+  const [coachStage, setCoachStage] = useState<0 | 1 | 2>(0);
+  const [saveCoachHidden, setSaveCoachHidden] = useState(false);
+
+  const isAddWorkoutOnboarding = step === "addWorkout";
+
+  useEffect(() => {
+    if (isAddWorkoutOnboarding) {
+      setCoachStage(0);
+      setSaveCoachHidden(false);
+    }
+  }, [isAddWorkoutOnboarding]);
+
   const initFormForActivity = useCallback((a: ActivityType) => {
     const next: Record<string, string> = {};
-    (a.fieldsSchema?.fields ?? []).forEach((f: any) => (next[f.key] = ""));
+    (a.fieldsSchema?.fields ?? []).forEach((f: any) => {
+      next[f.key] = "";
+    });
     setValues(next);
   }, []);
 
@@ -340,7 +491,9 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
       setSelected(act);
 
       const next: Record<string, string> = {};
-      (act.fieldsSchema?.fields ?? []).forEach((f: any) => (next[f.key] = ""));
+      (act.fieldsSchema?.fields ?? []).forEach((f: any) => {
+        next[f.key] = "";
+      });
       (prefill.metrics ?? []).forEach((m: any) => {
         next[m.metricKey] = String(m.valueNum);
       });
@@ -356,7 +509,7 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
 
       navigation?.setParams?.({ prefill: null });
     },
-    [navigation, prefill]
+    [navigation, prefill],
   );
 
   const load = useCallback(
@@ -376,13 +529,13 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
         setRefreshing(false);
       }
     },
-    [applyPrefillIfAny]
+    [applyPrefillIfAny],
   );
 
   useFocusEffect(
     useCallback(() => {
       load("initial");
-    }, [load])
+    }, [load]),
   );
 
   const pickActivity = (a: ActivityType) => {
@@ -397,6 +550,10 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
       const next = [a.id, ...prev.filter((x) => x !== a.id)];
       return next.slice(0, 6);
     });
+
+    if (isAddWorkoutOnboarding) {
+      setCoachStage(1);
+    }
   };
 
   const setField = (key: string, v: string) => {
@@ -411,7 +568,8 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
 
     if (durationMin.trim()) {
       const n = Number(durationMin.trim());
-      if (!Number.isFinite(n) || n < 0) return "Длительность должна быть числом в минутах";
+      if (!Number.isFinite(n) || n < 0)
+        return "Длительность должна быть числом в минутах";
       if (n > 24 * 60) return "Слишком большая длительность";
     }
 
@@ -423,8 +581,10 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
       if (f.type === "number" && v) {
         const n = Number(v);
         if (Number.isNaN(n)) return `${f.label}: должно быть числом`;
-        if (typeof f.min === "number" && n < f.min) return `${f.label}: минимум ${f.min}`;
-        if (typeof f.max === "number" && n > f.max) return `${f.label}: максимум ${f.max}`;
+        if (typeof f.min === "number" && n < f.min)
+          return `${f.label}: минимум ${f.min}`;
+        if (typeof f.max === "number" && n > f.max)
+          return `${f.label}: максимум ${f.max}`;
       }
 
       if (f.type === "select" && f.required && !v) {
@@ -476,22 +636,35 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
       };
 
       const res = await api.post("/workouts", body);
+      const granted: any[] = Array.isArray(res?.data?.grantedAchievements)
+        ? res.data.grantedAchievements
+        : [];
 
-      const granted: string[] = res?.data?.grantedAchievements ?? [];
+      if (isAddWorkoutOnboarding) {
+        nextStep();
+      }
+
       clearInputsKeepActivity();
 
       if (granted.length > 0) {
         try {
           const all = await getAchievements();
-          const map = new Map((all.items ?? []).map((a: any) => [a.code, a.title]));
-          setGrantedTitles(granted.map((c) => map.get(c) ?? c));
+          const resolvedTitles = resolveGrantedTitles(granted, all.items ?? []);
+          setGrantedTitles(resolvedTitles);
         } catch {
-          setGrantedTitles(granted);
+          const resolvedTitles = resolveGrantedTitles(granted, []);
+          setGrantedTitles(resolvedTitles);
         }
+
         setSuccessOpen(true);
+      } else if (isAddWorkoutOnboarding) {
+        navigation.navigate("Analytics");
       }
     } catch (e: any) {
-      const msg = e?.response?.data?.message ?? e?.message ?? "Не удалось сохранить тренировку";
+      const msg =
+        e?.response?.data?.message ??
+        e?.message ??
+        "Не удалось сохранить тренировку";
       Alert.alert("Ошибка", String(msg));
     } finally {
       setSaving(false);
@@ -503,7 +676,9 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
 
     const base = q
       ? items.filter(
-          (a) => a.name.toLowerCase().includes(q) || a.code.toLowerCase().includes(q)
+          (a) =>
+            a.name.toLowerCase().includes(q) ||
+            a.code.toLowerCase().includes(q),
         )
       : items;
 
@@ -517,13 +692,25 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
   const fieldsCount = fields.length;
   const requiredCount = fields.filter((f) => f.required).length;
 
+  const showActivityCoach = isAddWorkoutOnboarding && coachStage === 0;
+  const showFieldsCoach =
+    isAddWorkoutOnboarding && coachStage === 1 && !!selected;
+  const showSaveCoach =
+    isAddWorkoutOnboarding &&
+    coachStage === 2 &&
+    !!selected &&
+    !saveCoachHidden;
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <StatusBar barStyle="dark-content" backgroundColor={palette.bg} />
-      <LinearGradient colors={[palette.bg, palette.bg2]} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={[palette.bg, palette.bg2]}
+        style={StyleSheet.absoluteFill}
+      />
 
       <View style={styles.blobTopRight} pointerEvents="none" />
       <View style={styles.blobLeft} pointerEvents="none" />
@@ -553,18 +740,29 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
           <Text style={styles.heroKicker}>SPORTTRACKER</Text>
           <Text style={styles.heroTitle}>Добавить тренировку</Text>
           <Text style={styles.heroSubtitle}>
-            Выберите активность, заполните основные параметры и сохраните новую запись в дневник.
+            Выберите активность, заполните основные параметры и сохраните новую
+            запись в дневник.
           </Text>
 
           <View style={styles.heroMiniRow}>
             <View style={styles.heroMiniPill}>
-              <Ionicons name="calendar-outline" size={14} color={palette.purple} />
-              <Text style={styles.heroMiniPillText}>{formatLocalShort(startedAtIso)}</Text>
+              <Ionicons
+                name="calendar-outline"
+                size={14}
+                color={palette.purple}
+              />
+              <Text style={styles.heroMiniPillText}>
+                {formatLocalShort(startedAtIso)}
+              </Text>
             </View>
 
             {selected ? (
               <View style={styles.heroMiniPill}>
-                <Ionicons name="fitness-outline" size={14} color={palette.purple} />
+                <Ionicons
+                  name="fitness-outline"
+                  size={14}
+                  color={palette.purple}
+                />
                 <Text style={styles.heroMiniPillText}>{selected.code}</Text>
               </View>
             ) : null}
@@ -576,19 +774,33 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
             value={String(items.length)}
             label="активностей"
             tint="rgba(124,231,255,0.28)"
-            icon={<Ionicons name="list-outline" size={18} color={palette.purple} />}
+            icon={
+              <Ionicons name="list-outline" size={18} color={palette.purple} />
+            }
           />
           <SummaryStat
             value={selected ? String(fieldsCount) : "—"}
             label="полей"
             tint="rgba(255,179,107,0.28)"
-            icon={<Ionicons name="options-outline" size={18} color={palette.purple} />}
+            icon={
+              <Ionicons
+                name="options-outline"
+                size={18}
+                color={palette.purple}
+              />
+            }
           />
           <SummaryStat
             value={selected ? String(requiredCount) : "—"}
             label="обязательных"
             tint="rgba(255,141,216,0.28)"
-            icon={<Ionicons name="checkmark-circle-outline" size={18} color={palette.purple} />}
+            icon={
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={18}
+                color={palette.purple}
+              />
+            }
           />
         </View>
 
@@ -596,16 +808,29 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
           <Text style={styles.sectionKicker}>АКТИВНОСТЬ</Text>
           <Text style={styles.sectionTitle}>Выбор типа</Text>
           <Text style={styles.sectionDescription}>
-            Выберите вид активности. После этого форма автоматически подстроится под нужные поля.
+            Выберите вид активности. После этого форма автоматически подстроится
+            под нужные поля.
           </Text>
 
           <View style={styles.badgesRow}>
             <InfoBadge
-              icon={<Ionicons name="search-outline" size={14} color={palette.purple} />}
+              icon={
+                <Ionicons
+                  name="search-outline"
+                  size={14}
+                  color={palette.purple}
+                />
+              }
               label="Поиск"
             />
             <InfoBadge
-              icon={<Ionicons name="time-outline" size={14} color={palette.purple} />}
+              icon={
+                <Ionicons
+                  name="time-outline"
+                  size={14}
+                  color={palette.purple}
+                />
+              }
               label="Недавние"
             />
             <InfoBadge
@@ -613,6 +838,16 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
               label="Быстрое заполнение"
             />
           </View>
+
+          {showActivityCoach ? (
+            <CoachCard
+              title="Шаг 1. Выберите активность"
+              text="Сначала выберите тип тренировки. После этого появятся только нужные поля — бег, зал, плавание и так далее."
+              primaryLabel="Выбрать"
+              onNext={() => setPickerOpen(true)}
+              onSkip={skipOnboarding}
+            />
+          ) : null}
 
           <Pressable
             onPress={() => setPickerOpen(true)}
@@ -623,19 +858,33 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
           >
             <View style={{ flex: 1 }}>
               <Text style={styles.pickTitle} numberOfLines={1}>
-                {selected ? selected.name : loading ? "Загрузка…" : "Выбрать активность"}
+                {selected
+                  ? selected.name
+                  : loading
+                    ? "Загрузка…"
+                    : "Выбрать активность"}
               </Text>
               <Text style={styles.pickSub} numberOfLines={1}>
                 {selected ? selected.code : "Поиск по названию и коду"}
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={palette.subtext}
+            />
           </Pressable>
 
           {selected ? (
             <View style={styles.actionRow}>
-              <SecondaryButton title="Сменить" onPress={() => setPickerOpen(true)} />
-              <SecondaryButton title="Очистить поля" onPress={clearInputsKeepActivity} />
+              <SecondaryButton
+                title="Сменить"
+                onPress={() => setPickerOpen(true)}
+              />
+              <SecondaryButton
+                title="Очистить поля"
+                onPress={clearInputsKeepActivity}
+              />
             </View>
           ) : null}
         </View>
@@ -646,18 +895,26 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
               <Text style={styles.sectionKicker}>ОСНОВНОЕ</Text>
               <Text style={styles.sectionTitle}>Дата и заметки</Text>
               <Text style={styles.sectionDescription}>
-                Укажите время, длительность и при необходимости добавьте комментарий.
+                Укажите время, длительность и при необходимости добавьте
+                комментарий.
               </Text>
 
               <Text style={styles.label}>Дата и время</Text>
               <View style={styles.readonlyRow}>
-                <Text style={styles.readonlyText}>{formatLocalShort(startedAtIso)}</Text>
-                <Pressable onPress={() => setStartedAtIso(isoNow())} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={styles.readonlyText}>
+                  {formatLocalShort(startedAtIso)}
+                </Text>
+                <Pressable
+                  onPress={() => setStartedAtIso(isoNow())}
+                  style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
+                >
                   <Text style={styles.readonlyAction}>сейчас</Text>
                 </Pressable>
               </View>
 
-              <Text style={[styles.label, { marginTop: 12 }]}>Длительность (мин)</Text>
+              <Text style={[styles.label, { marginTop: 12 }]}>
+                Длительность (мин)
+              </Text>
               <TextInput
                 value={durationMin}
                 onChangeText={(v) => setDurationMin(clampNumStr(v))}
@@ -685,12 +942,22 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
                 Эти параметры зависят от выбранного типа тренировки.
               </Text>
 
+              {showFieldsCoach ? (
+                <CoachCard
+                  title="Шаг 2. Заполните параметры"
+                  text="Здесь вводятся метрики тренировки: дистанция, подходы, повторения, калории и другие значения в зависимости от выбранной активности."
+                  onNext={() => setCoachStage(2)}
+                  onSkip={skipOnboarding}
+                />
+              ) : null}
+
               <View style={{ marginTop: 4 }}>
                 {fields.length === 0 ? (
                   <View style={styles.emptyFields}>
                     <Text style={styles.emptyFieldsTitle}>Нет параметров</Text>
                     <Text style={styles.emptyFieldsSub}>
-                      Для этой активности не задана схема полей. Можно сохранить тренировку только с заметкой.
+                      Для этой активности не задана схема полей. Можно сохранить
+                      тренировку только с заметкой.
                     </Text>
                   </View>
                 ) : (
@@ -705,6 +972,16 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
                 )}
               </View>
             </View>
+
+            {showSaveCoach ? (
+              <CoachCard
+                title="Шаг 3. Сохраните тренировку"
+                text="Когда всё заполнено, нажмите кнопку сохранения. После этого запись попадёт в историю, аналитику и рекомендации."
+                primaryLabel="Сохраню"
+                onNext={() => setSaveCoachHidden(true)}
+                onSkip={skipOnboarding}
+              />
+            ) : null}
 
             <PrimaryButton
               title={saving ? "Сохраняем…" : "Сохранить тренировку"}
@@ -723,13 +1000,18 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
             <Text style={styles.sectionKicker}>ПОДСКАЗКА</Text>
             <Text style={styles.sectionTitle}>Сначала выберите активность</Text>
             <Text style={styles.sectionDescription}>
-              После выбора появятся только нужные поля. Это ускоряет заполнение и помогает избежать ошибок.
+              После выбора появятся только нужные поля. Это ускоряет заполнение
+              и помогает избежать ошибок.
             </Text>
           </View>
         ) : null}
       </ScrollView>
 
-      <BottomSheet visible={pickerOpen} onClose={() => setPickerOpen(false)} title="Выбор активности">
+      <BottomSheet
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title="Выбор активности"
+      >
         <View style={{ padding: 14 }}>
           <TextInput
             value={search}
@@ -746,7 +1028,9 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
           </Text>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 14, paddingTop: 0, gap: 10 }}>
+        <ScrollView
+          contentContainerStyle={{ padding: 14, paddingTop: 0, gap: 10 }}
+        >
           {filtered.map((a) => {
             const count = a.fieldsSchema?.fields?.length ?? 0;
             const active = selected?.id === a.id;
@@ -758,13 +1042,19 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
                 style={({ pressed }) => [
                   styles.activityCard,
                   {
-                    borderColor: active ? "rgba(109,76,255,0.55)" : palette.line,
+                    borderColor: active
+                      ? "rgba(109,76,255,0.55)"
+                      : palette.line,
                     opacity: pressed ? 0.9 : 1,
                   },
                 ]}
               >
                 <View style={styles.activityIcon}>
-                  <MaterialCommunityIcons name="dumbbell" size={18} color={palette.purple} />
+                  <MaterialCommunityIcons
+                    name="dumbbell"
+                    size={18}
+                    color={palette.purple}
+                  />
                 </View>
 
                 <View style={{ flex: 1 }}>
@@ -776,7 +1066,11 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
                   </Text>
                 </View>
 
-                <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={palette.subtext}
+                />
               </Pressable>
             );
           })}
@@ -794,40 +1088,71 @@ export default function AddWorkoutScreen({ navigation, route }: any) {
         </ScrollView>
       </BottomSheet>
 
-      <BottomSheet visible={successOpen} onClose={() => setSuccessOpen(false)} title="Готово!">
+      <BottomSheet
+        visible={successOpen}
+        onClose={() => setSuccessOpen(false)}
+        title="Готово!"
+      >
         <View style={{ padding: 14 }}>
           <View style={styles.successBox}>
             <Text style={styles.successTitle}>🎉 Новое достижение</Text>
             <Text style={styles.successSub}>
-              Вы открыли {grantedTitles.length > 1 ? "несколько бейджей" : "бейдж"}:
+              Вы открыли{" "}
+              {grantedTitles.length > 1 ? "несколько бейджей" : "бейдж"}:
             </Text>
 
             <View style={{ marginTop: 10, gap: 8 }}>
-              {grantedTitles.map((t) => (
-                <View key={t} style={styles.successPill}>
-                  <Text style={styles.successPillText} numberOfLines={1}>
-                    {t}
-                  </Text>
-                </View>
-              ))}
+              {grantedTitles.map((t, index) => {
+                const label =
+                  typeof t === "string" && t.trim()
+                    ? t.trim()
+                    : `Достижение ${index + 1}`;
+
+                return (
+                  <View key={`${label}-${index}`} style={styles.successPill}>
+                    <Text style={styles.successPillText} numberOfLines={1}>
+                      {label}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
 
             <View style={styles.successActions}>
-              <SecondaryButton title="Ок" onPress={() => setSuccessOpen(false)} />
+              <Pressable
+                onPress={() => {
+                  setSuccessOpen(false);
+                  if (isAddWorkoutOnboarding) {
+                    navigation?.navigate?.("Analytics");
+                  }
+                }}
+                style={({ pressed }) => [
+                  styles.successActionPressable,
+                  { opacity: pressed ? 0.9 : 1 },
+                ]}
+              >
+                <View style={styles.successSecondaryBtn}>
+                  <Text style={styles.successSecondaryBtnText}>Ок</Text>
+                </View>
+              </Pressable>
+
               <Pressable
                 onPress={() => {
                   setSuccessOpen(false);
                   navigation?.navigate?.("Achievements");
                 }}
-                style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flex: 1 }]}
+                style={({ pressed }) => [
+                  styles.successActionPressable,
+                  { opacity: pressed ? 0.9 : 1 },
+                ]}
               >
                 <LinearGradient
                   colors={[palette.purple, palette.purpleDark]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  style={styles.goAchievements}
+                  style={styles.successPrimaryBtn}
                 >
-                  <Text style={styles.goAchievementsText}>Открыть</Text>
+                  <Text style={styles.successPrimaryBtnText}>Открыть</Text>
                 </LinearGradient>
               </Pressable>
             </View>
@@ -1071,6 +1396,80 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: "800",
     marginLeft: 6,
+  },
+
+  coachCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(109,76,255,0.16)",
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  coachHeader: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
+  },
+
+  coachIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: palette.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  coachTitle: {
+    color: palette.text,
+    fontSize: 14.5,
+    fontWeight: "900",
+  },
+
+  coachText: {
+    color: palette.subtext,
+    fontSize: 12.8,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 4,
+  },
+
+  coachActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+
+  coachGhostBtn: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.line,
+    paddingVertical: 11,
+    alignItems: "center",
+    backgroundColor: palette.cardSoft,
+  },
+
+  coachGhostBtnText: {
+    color: palette.subtext,
+    fontSize: 13.5,
+    fontWeight: "900",
+  },
+
+  coachPrimaryBtn: {
+    borderRadius: 16,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+
+  coachPrimaryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13.5,
+    fontWeight: "900",
   },
 
   pickRow: {
@@ -1388,16 +1787,46 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
-  goAchievements: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: "center",
+  successActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
   },
 
-  goAchievementsText: {
-    color: "#fff",
-    fontSize: 13.5,
+  successActionPressable: {
+    flex: 1,
+  },
+
+  successSecondaryBtn: {
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.card,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+
+  successSecondaryBtnText: {
+    color: palette.text,
+    fontSize: 14,
     fontWeight: "900",
+    includeFontPadding: false,
+  },
+
+  successPrimaryBtn: {
+    minHeight: 52,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+
+  successPrimaryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+    includeFontPadding: false,
   },
 });

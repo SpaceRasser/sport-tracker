@@ -7,6 +7,7 @@ import { AuthProvider } from './src/auth/AuthContext';
 import { setupInterceptors } from './src/api/setupInterceptors';
 import { navigationRef } from './src/navigation/navigationRef';
 import * as WebBrowser from 'expo-web-browser';
+import OnboardingProvider from './src/onboarding/OnboardingContext';
 
 WebBrowser.maybeCompleteAuthSession();
 setupInterceptors();
@@ -14,10 +15,12 @@ setupInterceptors();
 export default function App() {
   return (
     <AuthProvider>
-      <NavigationContainer ref={navigationRef}>
-        <StatusBar style="dark" />
-        <AppNavigator />
-      </NavigationContainer>
+      <OnboardingProvider>
+        <NavigationContainer ref={navigationRef}>
+          <StatusBar style="dark" />
+          <AppNavigator />
+        </NavigationContainer>
+      </OnboardingProvider>
     </AuthProvider>
   );
 }

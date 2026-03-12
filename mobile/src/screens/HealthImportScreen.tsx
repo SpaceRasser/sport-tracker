@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -11,12 +11,13 @@ import {
   View,
   ActivityIndicator,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { api } from '../api/client';
+import { useOnboarding } from '../onboarding/OnboardingContext';
 
 import {
   initialize,
@@ -194,6 +195,38 @@ async function alreadyImportedByMarker(marker: string) {
   }
 }
 
+async function getImportedHealthConnectSessionIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+
+  try {
+    const now = new Date();
+    const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    for (let page = 1; page <= 5; page++) {
+      const res = await api.get('/workouts', {
+        params: { from, limit: 200, page },
+      });
+
+      const items = res?.data?.items ?? [];
+      if (!Array.isArray(items) || items.length === 0) break;
+
+      for (const w of items) {
+        const notes = String(w?.notes ?? '');
+        const match = notes.match(/HC_SESSION:([^\s]+)/);
+        if (match?.[1]) {
+          ids.add(match[1]);
+        }
+      }
+
+      if (items.length < 200) break;
+    }
+  } catch {
+    // тихо
+  }
+
+  return ids;
+}
+
 function StatusBadge({
   icon,
   label,
@@ -314,7 +347,66 @@ function SecondaryButton({
   );
 }
 
+function CoachCard({
+  title,
+  text,
+  primaryLabel = 'Понятно',
+  onNext,
+  onSkip,
+}: {
+  title: string;
+  text: string;
+  primaryLabel?: string;
+  onNext: () => void;
+  onSkip?: () => void;
+}) {
+  return (
+    <View style={styles.coachCard}>
+      <LinearGradient
+        colors={['rgba(109,76,255,0.14)', 'rgba(123,97,255,0.08)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View style={styles.coachHeader}>
+        <View style={styles.coachIcon}>
+          <Ionicons name="sparkles-outline" size={18} color={palette.purple} />
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.coachTitle}>{title}</Text>
+          <Text style={styles.coachText}>{text}</Text>
+        </View>
+      </View>
+
+      <View style={styles.coachActions}>
+        {onSkip ? (
+          <Pressable onPress={onSkip} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1, flex: 1 }]}>
+            <View style={styles.coachGhostBtn}>
+              <Text style={styles.coachGhostBtnText}>Пропустить</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
+        <Pressable onPress={onNext} style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flex: 1 }]}>
+          <LinearGradient
+            colors={[palette.purple, palette.purpleDark]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.coachPrimaryBtn}
+          >
+            <Text style={styles.coachPrimaryBtnText}>{primaryLabel}</Text>
+          </LinearGradient>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function HealthConnectScreen() {
+  const { step, nextStep, skipOnboarding } = useOnboarding();
+
   const [period, setPeriod] = useState<Period>('7d');
 
   const [screenLoading, setScreenLoading] = useState(true);
@@ -333,7 +425,15 @@ export default function HealthConnectScreen() {
   const [importIndex, setImportIndex] = useState(0);
   const [importTotal, setImportTotal] = useState(0);
 
+  const [coachStage, setCoachStage] = useState<0 | 1 | 2 | 3>(0);
+
   const mounted = useRef(true);
+
+  const isHealthConnectOnboarding = step === 'healthConnect';
+  const showConnectCoach = isHealthConnectOnboarding && status !== 'READY' && coachStage === 0;
+  const showPeriodCoach = isHealthConnectOnboarding && status === 'READY' && coachStage === 1;
+  const showImportCoach = isHealthConnectOnboarding && status === 'READY' && coachStage === 2;
+  const showListCoach = isHealthConnectOnboarding && status === 'READY' && coachStage === 3;
 
   useEffect(() => {
     mounted.current = true;
@@ -341,6 +441,18 @@ export default function HealthConnectScreen() {
       mounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (isHealthConnectOnboarding) {
+      setCoachStage(0);
+    }
+  }, [isHealthConnectOnboarding]);
+
+  useEffect(() => {
+    if (isHealthConnectOnboarding && status === 'READY' && coachStage === 0) {
+      setCoachStage(1);
+    }
+  }, [isHealthConnectOnboarding, status, coachStage]);
 
   useEffect(() => {
     (async () => {
@@ -404,6 +516,7 @@ export default function HealthConnectScreen() {
       const timeRange = { startTime: start.toISOString(), endTime: base.endTime };
 
       const rawSessions = await readAll('ExerciseSession', timeRange);
+      const importedIds = await getImportedHealthConnectSessionIds();
 
       const list: HcSession[] = (rawSessions ?? [])
         .map((s: any) => {
@@ -415,6 +528,7 @@ export default function HealthConnectScreen() {
           return { id, startTime, endTime, exerciseTypeText: text };
         })
         .filter((s) => s.id && s.startTime && s.endTime)
+        .filter((s) => !importedIds.has(s.id))
         .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
 
       if (!mounted.current) return;
@@ -619,6 +733,10 @@ export default function HealthConnectScreen() {
 
       await afterImportRefreshAndCursor(sessions, created);
 
+      if (showImportCoach) {
+        setCoachStage(3);
+      }
+
       Alert.alert('Импорт завершён', `Добавлено: ${created}\nПропущено: ${skipped}`);
     } catch (e: any) {
       const msg = e?.response?.data?.message ?? e?.message ?? 'Не удалось импортировать';
@@ -628,7 +746,7 @@ export default function HealthConnectScreen() {
       setImportIndex(0);
       setImportTotal(0);
     }
-  }, [sessions, importOneSession, afterImportRefreshAndCursor]);
+  }, [sessions, importOneSession, afterImportRefreshAndCursor, showImportCoach]);
 
   const importSingle = useCallback(
     async (s: HcSession) => {
@@ -645,6 +763,10 @@ export default function HealthConnectScreen() {
           Alert.alert('Готово', 'Сессия импортирована в дневник.');
         }
 
+        if (showListCoach) {
+          nextStep();
+        }
+
         await afterImportRefreshAndCursor([s], r.skipped ? 0 : 1);
       } catch (e: any) {
         const msg = e?.response?.data?.message ?? e?.message ?? 'Не удалось импортировать';
@@ -655,7 +777,7 @@ export default function HealthConnectScreen() {
         setImportTotal(0);
       }
     },
-    [importOneSession, afterImportRefreshAndCursor]
+    [importOneSession, afterImportRefreshAndCursor, showListCoach, nextStep]
   );
 
   const importingLabel =
@@ -747,6 +869,23 @@ export default function HealthConnectScreen() {
             <Text style={styles.sectionKicker}>ПОДКЛЮЧЕНИЕ</Text>
             <Text style={styles.sectionTitle}>{statusTitle}</Text>
             <Text style={styles.sectionDescription}>{statusSubtitle}</Text>
+
+            {showConnectCoach ? (
+              <CoachCard
+                title="Подключите Health Connect"
+                text="Сначала дайте доступ к данным. После этого приложение сможет читать тренировки, шаги, дистанцию и калории."
+                primaryLabel="Проверить доступ"
+                onNext={async () => {
+                  try {
+                    setScreenLoading(true);
+                    await refreshAll(period, 'initial');
+                  } finally {
+                    setScreenLoading(false);
+                  }
+                }}
+                onSkip={skipOnboarding}
+              />
+            ) : null}
 
             <View style={styles.badgesRow}>
               <StatusBadge
@@ -895,9 +1034,32 @@ export default function HealthConnectScreen() {
             Импортируются только данные после последнего успешного импорта.
           </Text>
 
+          {showPeriodCoach ? (
+            <CoachCard
+              title="Смените период"
+              text="Можно смотреть только сегодняшние данные или сразу последние 7 дней. Это влияет на список сессий ниже."
+              onNext={() => setCoachStage(2)}
+              onSkip={skipOnboarding}
+            />
+          ) : null}
+
           <View style={styles.filtersRow}>
-            <FilterChip label="Сегодня" active={period === 'today'} onPress={() => setPeriod('today')} />
-            <FilterChip label="7 дней" active={period === '7d'} onPress={() => setPeriod('7d')} />
+            <FilterChip
+              label="Сегодня"
+              active={period === 'today'}
+              onPress={() => {
+                setPeriod('today');
+                if (showPeriodCoach) setCoachStage(2);
+              }}
+            />
+            <FilterChip
+              label="7 дней"
+              active={period === '7d'}
+              onPress={() => {
+                setPeriod('7d');
+                if (showPeriodCoach) setCoachStage(2);
+              }}
+            />
           </View>
 
           <View style={{ height: 12 }} />
@@ -907,6 +1069,26 @@ export default function HealthConnectScreen() {
               Калории из Health Connect используются напрямую. Если они отсутствуют, приложение оценит их автоматически.
             </Text>
           </View>
+
+          <Text style={styles.metaText}>Калории за период: {previewCalories} ккал</Text>
+
+          {showImportCoach ? (
+            <View style={{ marginTop: 12 }}>
+              <CoachCard
+                title="Импортируйте всё разом"
+                text="Эта кнопка добавит все найденные сессии в дневник. Уже импортированные записи будут автоматически пропущены."
+                primaryLabel={sessions.length ? 'Импортировать' : 'Далее'}
+                onNext={() => {
+                  if (sessions.length) {
+                    importAll().catch(() => {});
+                  } else {
+                    setCoachStage(3);
+                  }
+                }}
+                onSkip={skipOnboarding}
+              />
+            </View>
+          ) : null}
 
           <View style={{ height: 12 }} />
 
@@ -922,6 +1104,16 @@ export default function HealthConnectScreen() {
           <Text style={styles.sectionKicker}>СПИСОК</Text>
           <Text style={styles.sectionTitle}>Сессии для импорта</Text>
           <Text style={styles.sectionDescription}>Можно импортировать каждую запись отдельно.</Text>
+
+          {showListCoach ? (
+            <CoachCard
+              title="Можно импортировать по одной"
+              text="Если не хотите загружать всё сразу, импортируйте отдельные сессии вручную кнопкой справа."
+              primaryLabel="Завершить"
+              onNext={nextStep}
+              onSkip={skipOnboarding}
+            />
+          ) : null}
 
           {sessions.length === 0 ? (
             <View style={styles.emptyBox}>
@@ -1250,6 +1442,80 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '800',
     marginLeft: 6,
+  },
+
+  coachCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(109,76,255,0.16)',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  coachHeader: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+
+  coachIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: palette.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  coachTitle: {
+    color: palette.text,
+    fontSize: 14.5,
+    fontWeight: '900',
+  },
+
+  coachText: {
+    color: palette.subtext,
+    fontSize: 12.8,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 4,
+  },
+
+  coachActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+
+  coachGhostBtn: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.line,
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: palette.cardSoft,
+  },
+
+  coachGhostBtnText: {
+    color: palette.subtext,
+    fontSize: 13.5,
+    fontWeight: '900',
+  },
+
+  coachPrimaryBtn: {
+    borderRadius: 16,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+
+  coachPrimaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '900',
   },
 
   filterChip: {

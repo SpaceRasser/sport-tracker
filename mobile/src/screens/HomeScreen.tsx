@@ -1,8 +1,8 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   ActivityIndicator,
-  Platform,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Dimensions,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +23,7 @@ import {
 } from '../api/recommendationsApi';
 import { getAnalyticsSummary, AnalyticsSummary } from '../api/analyticsApi';
 import { getLatestWorkout } from '../api/workoutsApi';
+import { useOnboarding } from '../onboarding/OnboardingContext';
 
 const palette = {
   bg: '#F5F2FF',
@@ -42,6 +44,13 @@ const palette = {
   orange: '#FFB36B',
   green: '#24A865',
   danger: '#E5484D',
+};
+
+type AnchorRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 function formatTime(iso: string) {
@@ -200,8 +209,111 @@ function SecondaryButton({
   );
 }
 
+function HomeCoachmark({
+  visible,
+  anchorRect,
+  onContinue,
+  onSkip,
+}: {
+  visible: boolean;
+  anchorRect: AnchorRect | null;
+  onContinue: () => void;
+  onSkip: () => void;
+}) {
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+  if (!visible || !anchorRect) return null;
+
+  const bubbleWidth = Math.min(screenWidth - 32, 320);
+  const preferredBelow = anchorRect.y + anchorRect.height + 16;
+  const preferredAbove = anchorRect.y - 180;
+
+  const bubbleTop =
+    preferredBelow + 180 < screenHeight
+      ? preferredBelow
+      : Math.max(40, preferredAbove);
+
+  const bubbleLeft = Math.min(
+    Math.max(16, anchorRect.x - 4),
+    screenWidth - bubbleWidth - 16
+  );
+
+  const arrowLeft = Math.min(
+    Math.max(24, anchorRect.x + anchorRect.width / 2 - bubbleLeft - 10),
+    bubbleWidth - 32
+  );
+
+  const showArrowOnTop = bubbleTop >= anchorRect.y + anchorRect.height;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onSkip}>
+      <View style={styles.coachmarkOverlay}>
+        <View
+          pointerEvents="none"
+          style={[
+            styles.coachmarkHighlight,
+            {
+              left: anchorRect.x - 2,
+              top: anchorRect.y - 2,
+              width: anchorRect.width + 4,
+              height: anchorRect.height + 4,
+            },
+          ]}
+        />
+
+        <View
+          style={[
+            styles.coachmarkBubble,
+            {
+              width: bubbleWidth,
+              left: bubbleLeft,
+              top: bubbleTop,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.coachmarkArrow,
+              showArrowOnTop ? styles.coachmarkArrowTop : styles.coachmarkArrowBottom,
+              { left: arrowLeft },
+            ]}
+          />
+
+          <Text style={styles.coachmarkKicker}>ПОДСКАЗКА</Text>
+          <Text style={styles.coachmarkTitle}>Начни отсюда</Text>
+          <Text style={styles.coachmarkText}>
+            Нажми на эту кнопку, чтобы добавить первую тренировку. После этого начнут заполняться история, аналитика и советы.
+          </Text>
+
+          <View style={styles.coachmarkActions}>
+            <Pressable onPress={onSkip} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1, flex: 1 }]}>
+              <View style={styles.coachmarkGhostBtn}>
+                <Text style={styles.coachmarkGhostBtnText}>Пропустить</Text>
+              </View>
+            </Pressable>
+
+            <Pressable onPress={onContinue} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1, flex: 1 }]}>
+              <LinearGradient
+                colors={[palette.purple, palette.purpleDark]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.coachmarkPrimaryBtn}
+              >
+                <Text style={styles.coachmarkPrimaryBtnText}>Понятно</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function HomeScreen({ navigation }: any) {
   const mountedRef = useRef(true);
+  const addWorkoutAnchorRef = useRef<View | null>(null);
+
+  const { step, nextStep, skipOnboarding } = useOnboarding();
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -214,6 +326,58 @@ export default function HomeScreen({ navigation }: any) {
 
   const [loadingLatest, setLoadingLatest] = useState(true);
   const [latest, setLatest] = useState<any | null>(null);
+
+  const [anchorRect, setAnchorRect] = useState<AnchorRect | null>(null);
+  const [locallyClosedHint, setLocallyClosedHint] = useState(false);
+
+  const showHomeHint = step === 'home' && !locallyClosedHint;
+
+  useEffect(() => {
+    if (step === 'home') {
+      setLocallyClosedHint(false);
+    }
+  }, [step]);
+
+  const measureAddWorkoutAnchor = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        addWorkoutAnchorRef.current?.measureInWindow((x, y, width, height) => {
+          if (!width || !height) return;
+          setAnchorRect({ x, y, width, height });
+        });
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!showHomeHint) return;
+
+    const t = setTimeout(() => {
+      measureAddWorkoutAnchor();
+    }, 300);
+
+    return () => clearTimeout(t);
+  }, [showHomeHint, measureAddWorkoutAnchor]);
+
+  const handleAddWorkoutPress = useCallback(() => {
+    if (step === 'home') {
+      setLocallyClosedHint(true);
+      nextStep();
+    }
+
+    navigation.navigate('AddWorkout');
+  }, [navigation, step, nextStep]);
+
+  const closeHomeHint = useCallback(() => {
+    setLocallyClosedHint(true);
+    nextStep();
+    navigation.navigate('AddWorkout');
+  }, [nextStep, navigation]);
+
+  const skipHomeHint = useCallback(() => {
+    setLocallyClosedHint(true);
+    skipOnboarding();
+  }, [skipOnboarding]);
 
   const loadRecommendations = useCallback(async () => {
     setLoadingRec(true);
@@ -275,10 +439,11 @@ export default function HomeScreen({ navigation }: any) {
     setRefreshing(true);
     try {
       await refreshAll();
+      measureAddWorkoutAnchor();
     } finally {
       setRefreshing(false);
     }
-  }, [refreshAll]);
+  }, [refreshAll, measureAddWorkoutAnchor]);
 
   const onDismissTop = useCallback(async () => {
     if (!topRec) return;
@@ -312,6 +477,7 @@ export default function HomeScreen({ navigation }: any) {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        onContentSizeChange={measureAddWorkoutAnchor}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={palette.purple} />}
       >
         <LinearGradient
@@ -364,11 +530,17 @@ export default function HomeScreen({ navigation }: any) {
             />
           </View>
 
-          <PrimaryButton
-            icon="add-circle-outline"
-            label="Добавить тренировку"
-            onPress={() => navigation.navigate('AddWorkout')}
-          />
+          <View
+            ref={addWorkoutAnchorRef}
+            collapsable={false}
+            onLayout={measureAddWorkoutAnchor}
+          >
+            <PrimaryButton
+              icon="add-circle-outline"
+              label="Добавить тренировку"
+              onPress={handleAddWorkoutPress}
+            />
+          </View>
 
           <View style={styles.secondaryRow}>
             <SecondaryButton
@@ -542,7 +714,7 @@ export default function HomeScreen({ navigation }: any) {
                 </Text>
 
                 <Pressable
-                  onPress={() => navigation.navigate('AddWorkout')}
+                  onPress={handleAddWorkoutPress}
                   style={({ pressed }) => [{ marginTop: 10, opacity: pressed ? 0.85 : 1 }]}
                 >
                   <Text style={styles.linkText}>Добавить тренировку →</Text>
@@ -554,6 +726,13 @@ export default function HomeScreen({ navigation }: any) {
 
         <View style={{ height: 16 }} />
       </ScrollView>
+
+      <HomeCoachmark
+        visible={showHomeHint}
+        anchorRect={anchorRect}
+        onContinue={closeHomeHint}
+        onSkip={skipHomeHint}
+      />
     </View>
   );
 }
@@ -1052,6 +1231,108 @@ const styles = StyleSheet.create({
     color: palette.text,
     marginTop: 4,
     fontSize: 12.5,
+    fontWeight: '900',
+  },
+
+  coachmarkOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(45,36,77,0.42)',
+  },
+
+  coachmarkHighlight: {
+    position: 'absolute',
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 12,
+  },
+
+  coachmarkBubble: {
+    position: 'absolute',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: palette.line,
+  },
+
+  coachmarkArrow: {
+    position: 'absolute',
+    width: 18,
+    height: 18,
+    backgroundColor: '#FFFFFF',
+    transform: [{ rotate: '45deg' }],
+    borderLeftWidth: 1,
+    borderTopWidth: 1,
+    borderColor: palette.line,
+  },
+
+  coachmarkArrowTop: {
+    top: -9,
+  },
+
+  coachmarkArrowBottom: {
+    bottom: -9,
+  },
+
+  coachmarkKicker: {
+    color: palette.purple,
+    fontSize: 11.5,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    marginBottom: 6,
+  },
+
+  coachmarkTitle: {
+    color: palette.text,
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+
+  coachmarkText: {
+    color: palette.subtext,
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+
+  coachmarkActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+
+  coachmarkGhostBtn: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.line,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: palette.cardSoft,
+  },
+
+  coachmarkGhostBtnText: {
+    color: palette.text,
+    fontSize: 13.5,
+    fontWeight: '900',
+  },
+
+  coachmarkPrimaryBtn: {
+    borderRadius: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+
+  coachmarkPrimaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
     fontWeight: '900',
   },
 });

@@ -21,6 +21,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../api/client";
 import { getRecords } from "../api/recordsApi";
 import { getProgress } from "../api/analyticsApi";
+import { useOnboarding } from "../onboarding/OnboardingContext";
 
 type Field =
   | { key: string; label: string; type: "number"; unit?: string; required?: boolean }
@@ -215,6 +216,63 @@ function SummaryStat({
   );
 }
 
+function CoachCard({
+  title,
+  text,
+  primaryLabel = "Понятно",
+  onNext,
+  onSkip,
+}: {
+  title: string;
+  text: string;
+  primaryLabel?: string;
+  onNext: () => void;
+  onSkip?: () => void;
+}) {
+  return (
+    <View style={styles.coachCard}>
+      <LinearGradient
+        colors={["rgba(109,76,255,0.14)", "rgba(123,97,255,0.08)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View style={styles.coachHeader}>
+        <View style={styles.coachIcon}>
+          <Ionicons name="sparkles-outline" size={18} color={palette.purple} />
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.coachTitle}>{title}</Text>
+          <Text style={styles.coachText}>{text}</Text>
+        </View>
+      </View>
+
+      <View style={styles.coachActions}>
+        {onSkip ? (
+          <Pressable onPress={onSkip} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1, flex: 1 }]}>
+            <View style={styles.coachGhostBtn}>
+              <Text style={styles.coachGhostBtnText}>Пропустить</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
+        <Pressable onPress={onNext} style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flex: 1 }]}>
+          <LinearGradient
+            colors={[palette.purple, palette.purpleDark]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.coachPrimaryBtn}
+          >
+            <Text style={styles.coachPrimaryBtnText}>{primaryLabel}</Text>
+          </LinearGradient>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function PickerModal({
   visible,
   title,
@@ -253,7 +311,10 @@ function PickerModal({
                   ]}
                 >
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.modalRowTitle, { color: active ? palette.purple : palette.text }]} numberOfLines={1}>
+                    <Text
+                      style={[styles.modalRowTitle, { color: active ? palette.purple : palette.text }]}
+                      numberOfLines={1}
+                    >
                       {it.label}
                     </Text>
                     {it.sub ? (
@@ -358,7 +419,9 @@ function RecordStatusPill({ code }: { code: string }) {
   );
 }
 
-export default function AnalyticsScreen() {
+export default function AnalyticsScreen({ navigation }: any) {
+  const { step, nextStep, skipOnboarding } = useOnboarding();
+
   const [refreshing, setRefreshing] = useState(false);
 
   const [recordsLoading, setRecordsLoading] = useState(true);
@@ -381,6 +444,8 @@ export default function AnalyticsScreen() {
   const [actPickerOpen, setActPickerOpen] = useState(false);
   const [metricPickerOpen, setMetricPickerOpen] = useState(false);
 
+  const [coachStage, setCoachStage] = useState<0 | 1 | 2 | 3>(0);
+
   const grouped = useMemo(() => groupByActivity(records), [records]);
 
   const selectedActivity = useMemo(
@@ -398,6 +463,14 @@ export default function AnalyticsScreen() {
         unit: (f as any).unit as string | undefined,
       }));
   }, [selectedActivity]);
+
+  const isAnalyticsOnboarding = step === "analytics";
+
+  useEffect(() => {
+    if (isAnalyticsOnboarding) {
+      setCoachStage(0);
+    }
+  }, [isAnalyticsOnboarding]);
 
   const resolveDefaultMetric = useCallback((a: ActivityType | null) => {
     if (!a) return null;
@@ -540,6 +613,11 @@ export default function AnalyticsScreen() {
     ];
   }, [progSummary, metricKey, unitLabel]);
 
+  const showActivityCoach = isAnalyticsOnboarding && coachStage === 0;
+  const showMetricCoach = isAnalyticsOnboarding && coachStage === 1;
+  const showPeriodCoach = isAnalyticsOnboarding && coachStage === 2;
+  const showPrCoach = isAnalyticsOnboarding && coachStage === 3;
+
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor={palette.bg} />
@@ -633,6 +711,42 @@ export default function AnalyticsScreen() {
             />
           </View>
 
+          {showActivityCoach ? (
+            <CoachCard
+              title="Шаг 1. Выберите активность"
+              text="Сначала выберите тип тренировки. Аналитика и график будут строиться именно по этой активности."
+              primaryLabel="Выбрать"
+              onNext={() => setActPickerOpen(true)}
+              onSkip={skipOnboarding}
+            />
+          ) : null}
+
+          {showMetricCoach ? (
+            <CoachCard
+              title="Шаг 2. Выберите метрику"
+              text="Теперь выберите, что именно смотреть: дистанцию, вес, калории, темп и другие числовые показатели."
+              primaryLabel="Выбрать"
+              onNext={() => {
+                if (!selectedActivity) return;
+                if (numericMetrics.length === 0) {
+                  Alert.alert("Метрики", "У этой активности нет числовых метрик.");
+                  return;
+                }
+                setMetricPickerOpen(true);
+              }}
+              onSkip={skipOnboarding}
+            />
+          ) : null}
+
+          {showPeriodCoach ? (
+            <CoachCard
+              title="Шаг 3. Выберите период"
+              text="Переключайте диапазон 7, 30 или 90 дней, чтобы смотреть короткую или длинную динамику прогресса."
+              onNext={() => setCoachStage(3)}
+              onSkip={skipOnboarding}
+            />
+          ) : null}
+
           <View style={styles.controlsBlock}>
             <Pressable
               onPress={() => setActPickerOpen(true)}
@@ -682,9 +796,30 @@ export default function AnalyticsScreen() {
             </Pressable>
 
             <View style={styles.filtersRow}>
-              <FilterChip label="7 дней" active={days === 7} onPress={() => setDays(7)} />
-              <FilterChip label="30 дней" active={days === 30} onPress={() => setDays(30)} />
-              <FilterChip label="90 дней" active={days === 90} onPress={() => setDays(90)} />
+              <FilterChip
+                label="7 дней"
+                active={days === 7}
+                onPress={() => {
+                  setDays(7);
+                  if (showPeriodCoach) setCoachStage(3);
+                }}
+              />
+              <FilterChip
+                label="30 дней"
+                active={days === 30}
+                onPress={() => {
+                  setDays(30);
+                  if (showPeriodCoach) setCoachStage(3);
+                }}
+              />
+              <FilterChip
+                label="90 дней"
+                active={days === 90}
+                onPress={() => {
+                  setDays(90);
+                  if (showPeriodCoach) setCoachStage(3);
+                }}
+              />
             </View>
           </View>
 
@@ -720,6 +855,19 @@ export default function AnalyticsScreen() {
           <Text style={styles.sectionDescription}>
             Лучшие значения по метрикам обновляются после сохранения тренировки.
           </Text>
+
+          {showPrCoach ? (
+            <CoachCard
+              title="Шаг 4. Смотрите личные рекорды"
+              text="Здесь собраны ваши лучшие результаты по каждой активности. Это быстрый способ увидеть прогресс без ручного поиска."
+              primaryLabel="Далее"
+              onNext={() => {
+                nextStep();
+                navigation?.navigate?.("HealthConnect");
+              }}
+              onSkip={skipOnboarding}
+            />
+          ) : null}
 
           {recordsLoading ? (
             <View style={styles.inlineInfo}>
@@ -793,6 +941,10 @@ export default function AnalyticsScreen() {
           const act = activities.find((a) => a.id === id) ?? null;
           const mk = resolveDefaultMetric(act);
           setMetricKey(mk);
+
+          if (isAnalyticsOnboarding) {
+            setCoachStage(1);
+          }
         }}
         onClose={() => setActPickerOpen(false)}
       />
@@ -805,6 +957,10 @@ export default function AnalyticsScreen() {
         onSelect={(id) => {
           setMetricPickerOpen(false);
           setMetricKey(id);
+
+          if (isAnalyticsOnboarding) {
+            setCoachStage(2);
+          }
         }}
         onClose={() => setMetricPickerOpen(false)}
       />
@@ -1044,6 +1200,80 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: "800",
     marginLeft: 6,
+  },
+
+  coachCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(109,76,255,0.16)",
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  coachHeader: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
+  },
+
+  coachIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: palette.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  coachTitle: {
+    color: palette.text,
+    fontSize: 14.5,
+    fontWeight: "900",
+  },
+
+  coachText: {
+    color: palette.subtext,
+    fontSize: 12.8,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 4,
+  },
+
+  coachActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+
+  coachGhostBtn: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.line,
+    paddingVertical: 11,
+    alignItems: "center",
+    backgroundColor: palette.cardSoft,
+  },
+
+  coachGhostBtnText: {
+    color: palette.subtext,
+    fontSize: 13.5,
+    fontWeight: "900",
+  },
+
+  coachPrimaryBtn: {
+    borderRadius: 16,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+
+  coachPrimaryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13.5,
+    fontWeight: "900",
   },
 
   controlsBlock: {

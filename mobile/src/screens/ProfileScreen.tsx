@@ -25,6 +25,7 @@ import { getMe, updateMyProfile } from '../api/userApi';
 import { presignAvatar, updateMe } from '../api/meApi';
 import { useAuth } from '../auth/AuthContext';
 import { getAnalyticsSummary, AnalyticsSummary } from '../api/analyticsApi';
+import { useOnboarding } from '../onboarding/OnboardingContext';
 
 type Level = 'beginner' | 'intermediate' | 'advanced';
 type Gender = 'male' | 'female' | 'other' | 'unknown';
@@ -230,8 +231,11 @@ function ChipRow<T extends string>({
   );
 }
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ route, navigation }: any) {
   const { signOut } = useAuth();
+  const onboarding = useOnboarding() as any;
+
+  const forcedSetup = Boolean(route?.params?.forcedSetup);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -360,6 +364,36 @@ export default function ProfileScreen() {
     }
   }, []);
 
+  const startOnboardingSafely = useCallback(async () => {
+    try {
+      if (typeof onboarding?.begin === 'function') {
+        await onboarding.begin('home', true);
+        return;
+      }
+
+      if (typeof onboarding?.start === 'function') {
+        await onboarding.start('home', true);
+        return;
+      }
+
+      if (typeof onboarding?.restart === 'function') {
+        await onboarding.restart('home', true);
+        return;
+      }
+
+      if (typeof onboarding?.setStep === 'function') {
+        await onboarding.setStep('home');
+        return;
+      }
+
+      if (typeof onboarding?.showStep === 'function') {
+        await onboarding.showStep('home');
+      }
+    } catch {
+      // не ломаем вход в приложение, даже если onboarding API отличается
+    }
+  }, [onboarding]);
+
   const onSave = useCallback(async () => {
     try {
       setSaving(true);
@@ -376,6 +410,7 @@ export default function ProfileScreen() {
         Alert.alert('Проверьте рост', 'Рост должен быть числом от 50 до 260.');
         return;
       }
+
       if (wStr && (Number.isNaN(w) || (w as number) < 20 || (w as number) > 400)) {
         Alert.alert('Проверьте вес', 'Вес должен быть числом от 20 до 400.');
         return;
@@ -389,12 +424,36 @@ export default function ProfileScreen() {
       });
 
       await load();
+
+      const profileCompleted =
+        typeof h === 'number' &&
+        typeof w === 'number' &&
+        gender !== 'unknown';
+
+      if (forcedSetup && profileCompleted) {
+        await startOnboardingSafely();
+
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Drawer' }],
+        });
+      }
     } catch (e: any) {
       Alert.alert('Ошибка', e?.message ?? 'Не удалось сохранить профиль');
     } finally {
       setSaving(false);
     }
-  }, [name, heightCm, weightKg, gender, level, load]);
+  }, [
+    name,
+    heightCm,
+    weightKg,
+    gender,
+    level,
+    load,
+    forcedSetup,
+    navigation,
+    startOnboardingSafely,
+  ]);
 
   const onToggleNotifications = useCallback(async (next: boolean) => {
     setNotifBusy(true);
@@ -496,7 +555,11 @@ export default function ProfileScreen() {
       <View style={styles.blobLeft} pointerEvents="none" />
       <View style={styles.blobBottom} pointerEvents="none" />
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <LinearGradient
           colors={[palette.purple, palette.purpleDark, '#7B61FF']}
           start={{ x: 0, y: 0 }}
@@ -506,10 +569,18 @@ export default function ProfileScreen() {
           <View style={styles.heroBlobTop} />
           <View style={styles.heroBlobBottom} />
 
-          <Text style={styles.heroKicker}>SPORTTRACKER</Text>
-          <Text style={styles.heroTitle}>Профиль</Text>
+          <Text style={styles.heroKicker}>
+            {forcedSetup ? 'ПЕРВЫЙ ЗАПУСК' : 'SPORTTRACKER'}
+          </Text>
+
+          <Text style={styles.heroTitle}>
+            {forcedSetup ? 'Завершим настройку' : 'Профиль'}
+          </Text>
+
           <Text style={styles.heroSubtitle}>
-            Управляйте личными данными, уведомлениями и основными параметрами для аналитики.
+            {forcedSetup
+              ? 'Для старта заполните пол, рост и вес. Это нужно для точной аналитики, рекомендаций и персональных подсказок.'
+              : 'Управляйте личными данными, уведомлениями и основными параметрами для аналитики.'}
           </Text>
 
           <View style={styles.heroProfileRow}>
@@ -545,6 +616,29 @@ export default function ProfileScreen() {
             </View>
           </View>
         </LinearGradient>
+
+        {forcedSetup ? (
+          <SectionCard
+            kicker="НАЧАЛО РАБОТЫ"
+            title="Заполните обязательные данные"
+            subtitle="Без этих параметров приложение не сможет корректно считать аналитику и персональные рекомендации."
+          >
+            <View style={styles.badgesRow}>
+              <InfoBadge
+                icon={<Ionicons name="body-outline" size={14} color={palette.purple} />}
+                label="Пол"
+              />
+              <InfoBadge
+                icon={<Ionicons name="resize-outline" size={14} color={palette.purple} />}
+                label="Рост"
+              />
+              <InfoBadge
+                icon={<Ionicons name="barbell-outline" size={14} color={palette.purple} />}
+                label="Вес"
+              />
+            </View>
+          </SectionCard>
+        ) : null}
 
         <View style={styles.statsRow}>
           <SummaryStat
@@ -729,20 +823,26 @@ export default function ProfileScreen() {
             style={styles.saveButton}
           >
             <Text style={styles.saveButtonText}>
-              {saving ? 'Сохраняем…' : 'Сохранить изменения'}
+              {saving
+                ? 'Сохраняем…'
+                : forcedSetup
+                ? 'Продолжить'
+                : 'Сохранить изменения'}
             </Text>
           </LinearGradient>
         </Pressable>
 
-        <Pressable
-          style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
-          onPress={signOut}
-        >
-          <View style={styles.logoutButton}>
-            <MaterialCommunityIcons name="logout" size={18} color={palette.danger} />
-            <Text style={styles.logoutButtonText}>Выйти</Text>
-          </View>
-        </Pressable>
+        {!forcedSetup ? (
+          <Pressable
+            style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
+            onPress={signOut}
+          >
+            <View style={styles.logoutButton}>
+              <MaterialCommunityIcons name="logout" size={18} color={palette.danger} />
+              <Text style={styles.logoutButtonText}>Выйти</Text>
+            </View>
+          </Pressable>
+        ) : null}
 
         <View style={{ height: 24 }} />
       </ScrollView>
