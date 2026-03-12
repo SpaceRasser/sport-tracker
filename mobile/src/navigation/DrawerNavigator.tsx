@@ -1,14 +1,14 @@
-// mobile/src/navigation/DrawerNavigator.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  useColorScheme,
   Platform,
   Pressable,
   Image,
   ActivityIndicator,
+  Dimensions,
+  StatusBar,
 } from "react-native";
 import {
   createDrawerNavigator,
@@ -16,8 +16,9 @@ import {
   DrawerItemList,
   useDrawerStatus,
 } from "@react-navigation/drawer";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 
 import HomeScreen from "../screens/HomeScreen";
 import AddWorkoutScreen from "../screens/AddWorkoutScreen";
@@ -43,18 +44,24 @@ export type DrawerParamList = {
 
 const Drawer = createDrawerNavigator<DrawerParamList>();
 
-function makePalette(isDark: boolean) {
-  return {
-    bg: isDark ? "#0B0D12" : "#F4F6FA",
-    card: isDark ? "#121625" : "#FFFFFF",
-    text: isDark ? "#E9ECF5" : "#121722",
-    subtext: isDark ? "#A9B1C7" : "#5C667A",
-    border: isDark ? "rgba(255,255,255,0.08)" : "rgba(16,24,40,0.08)",
-    primary: "#2D6BFF",
-    softPrimary: isDark ? "rgba(45,107,255,0.16)" : "rgba(45,107,255,0.10)",
-    inputBg: isDark ? "rgba(255,255,255,0.06)" : "#F2F4F7",
-  };
-}
+const palette = {
+  bg: "#F5F2FF",
+  bg2: "#EEE9FF",
+  card: "#FFFFFF",
+  cardSoft: "#F4F0FF",
+
+  purple: "#6D4CFF",
+  purpleDark: "#5137D7",
+
+  text: "#2D244D",
+  subtext: "#7D739D",
+  muted: "#9D95BA",
+  line: "#E6E0FA",
+
+  cyan: "#7CE7FF",
+  pink: "#FF8DD8",
+  orange: "#FFB36B",
+};
 
 function initialsFromName(name?: string | null) {
   const n = (name ?? "").trim();
@@ -66,14 +73,12 @@ function initialsFromName(name?: string | null) {
 }
 
 function DrawerHeader({
-  palette,
   onGoProfile,
   onReload,
   loading,
   name,
   avatarUrl,
 }: {
-  palette: ReturnType<typeof makePalette>;
   onGoProfile: () => void;
   onReload: () => void;
   loading: boolean;
@@ -83,72 +88,92 @@ function DrawerHeader({
   const initials = initialsFromName(name);
 
   return (
-    <View style={[styles.headerCard, { borderColor: palette.border, backgroundColor: palette.card }]}>
-      {/* glow */}
-      <View pointerEvents="none" style={[styles.glow1, { backgroundColor: "rgba(45,107,255,0.18)" }]} />
-      <View pointerEvents="none" style={[styles.glow2, { backgroundColor: "rgba(45,107,255,0.10)" }]} />
+    <LinearGradient
+      colors={[palette.purple, palette.purpleDark, "#7B61FF"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.heroCard}
+    >
+      <View style={styles.heroBlobTop} />
+      <View style={styles.heroBlobBottom} />
 
-      <Pressable onPress={onGoProfile} style={({ pressed }) => [{ opacity: pressed ? 0.86 : 1 }]}>
-        <View style={styles.headerRow}>
-          <View
-            style={[
-              styles.avatar,
-              {
-                borderColor: palette.border,
-                backgroundColor: "rgba(45,107,255,0.12)",
-                overflow: "hidden",
-              },
-            ]}
-          >
+      <Text style={styles.heroKicker}>SPORTTRACKER</Text>
+      <Text style={styles.heroTitle}>Меню</Text>
+      <Text style={styles.heroSubtitle}>
+        Быстрый доступ к разделам, профилю и настройкам приложения.
+      </Text>
+
+      <Pressable
+        onPress={onGoProfile}
+        style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
+      >
+        <View style={styles.profileRow}>
+          <View style={styles.avatarWrap}>
             {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+              <Image
+                source={{ uri: avatarUrl }}
+                style={{ width: "100%", height: "100%" }}
+                resizeMode="cover"
+              />
             ) : (
-              <Text style={[styles.avatarText, { color: palette.primary }]}>{initials}</Text>
+              <Text style={styles.avatarText}>{initials}</Text>
             )}
           </View>
 
           <View style={{ flex: 1 }}>
-            <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>
-              {name?.trim() ? name : "SportTracker"}
+            <Text style={styles.profileName} numberOfLines={1}>
+              {name?.trim() ? name : "Пользователь"}
             </Text>
-            <Text style={[styles.meta, { color: palette.subtext }]} numberOfLines={1}>
+            <Text style={styles.profileMeta} numberOfLines={1}>
               Профиль и настройки
             </Text>
           </View>
 
-          <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+          <View style={styles.heroActionIcon}>
+            <Ionicons name="chevron-forward" size={18} color={palette.purpleDark} />
+          </View>
         </View>
       </Pressable>
 
-      <View style={styles.headerActions}>
+      <View style={styles.headerActionRow}>
         <Pressable
           onPress={onReload}
           disabled={loading}
           style={({ pressed }) => [
-            styles.iconBtn,
-            {
-              backgroundColor: palette.inputBg,
-              borderColor: palette.border,
-              opacity: loading ? 0.6 : pressed ? 0.85 : 1,
-            },
+            styles.smallActionBtn,
+            { opacity: loading ? 0.65 : pressed ? 0.85 : 1 },
           ]}
         >
           {loading ? (
-            <ActivityIndicator />
+            <ActivityIndicator color={palette.purpleDark} />
           ) : (
-            <Ionicons name="refresh" size={16} color={palette.primary} />
+            <>
+              <Ionicons name="refresh" size={16} color={palette.purpleDark} />
+              <Text style={styles.smallActionText}>Обновить</Text>
+            </>
           )}
         </Pressable>
       </View>
+    </LinearGradient>
+  );
+}
+
+function DrawerFooter() {
+  return (
+    <View style={styles.drawerFooter}>
+      <View style={styles.footerBadge}>
+        <MaterialCommunityIcons name="lightning-bolt-outline" size={14} color={palette.purple} />
+        <Text style={styles.footerBadgeText}>Aurora Sport</Text>
+      </View>
+
+      <Text style={styles.drawerFooterText}>SportTracker</Text>
     </View>
   );
 }
 
 function CustomDrawerContent(props: any) {
-  const scheme = useColorScheme();
-  const palette = useMemo(() => makePalette(scheme === "dark"), [scheme]);
   const insets = useSafeAreaInsets();
-  const drawerStatus = useDrawerStatus(); // "open" | "closed"
+  const drawerStatus = useDrawerStatus();
 
   const mounted = useRef(true);
 
@@ -162,12 +187,9 @@ function CustomDrawerContent(props: any) {
       const data = await getMe();
       const u = data?.user;
       setName(u?.name ?? null);
-
-      // ВАЖНО: Drawer читает именно avatarUrl (как и ProfileScreen).
-      // Если после VK логина ты возвращаешь "avatar" вместо "avatarUrl" — здесь будет null.
       setAvatarUrl(u?.avatarUrl ?? null);
     } catch {
-      // тихо: Drawer не должен ломать UX
+      // тихо, чтобы drawer не ломал UX
     } finally {
       if (mounted.current) setLoading(false);
     }
@@ -181,7 +203,6 @@ function CustomDrawerContent(props: any) {
     };
   }, [loadMe]);
 
-  // авто-обновление при открытии Drawer (прод-UX)
   useEffect(() => {
     if (drawerStatus === "open") {
       loadMe();
@@ -189,18 +210,23 @@ function CustomDrawerContent(props: any) {
   }, [drawerStatus, loadMe]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.card }} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <StatusBar barStyle="dark-content" backgroundColor={palette.bg} />
+
       <DrawerContentScrollView
         {...props}
         contentContainerStyle={{
           paddingTop: Math.max(insets.top, 10),
           paddingBottom: 10,
         }}
-        style={{ backgroundColor: palette.card }}
+        style={styles.drawerScroll}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
+        <View style={styles.drawerBgBlobTop} pointerEvents="none" />
+        <View style={styles.drawerBgBlobBottom} pointerEvents="none" />
+
+        <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
           <DrawerHeader
-            palette={palette}
             name={name}
             avatarUrl={avatarUrl}
             loading={loading}
@@ -209,23 +235,18 @@ function CustomDrawerContent(props: any) {
           />
         </View>
 
-        <View style={{ paddingHorizontal: 10 }}>
+        <View style={styles.listWrap}>
           <DrawerItemList {...props} />
         </View>
 
-        <View style={{ height: 14 }} />
-
-        <View style={[styles.drawerFooter, { borderTopColor: palette.border }]}>
-          <Text style={[styles.drawerFooterText, { color: palette.subtext }]}>SportTracker</Text>
-        </View>
+        <DrawerFooter />
       </DrawerContentScrollView>
     </SafeAreaView>
   );
 }
 
 export default function DrawerNavigator() {
-  const scheme = useColorScheme();
-  const palette = useMemo(() => makePalette(scheme === "dark"), [scheme]);
+  const drawerWidth = Math.min(320, Math.round(Dimensions.get("window").width * 0.82));
 
   return (
     <Drawer.Navigator
@@ -235,30 +256,63 @@ export default function DrawerNavigator() {
         headerTitleAlign: "center",
         headerStyle: {
           backgroundColor: palette.card,
-          ...(Platform.OS === "ios" ? { shadowOpacity: 0, shadowColor: "transparent" } : { elevation: 0 }),
+          ...(Platform.OS === "ios"
+            ? { shadowOpacity: 0, shadowColor: "transparent" }
+            : { elevation: 0 }),
         },
-        headerTitleStyle: { fontWeight: "900", color: palette.text },
+        headerTitleStyle: {
+          fontWeight: "900",
+          color: palette.text,
+          fontSize: 17,
+        },
         headerTintColor: palette.text,
+
         headerLeft: () => (
           <Pressable
             onPress={() => navigation.toggleDrawer()}
-            style={({ pressed }) => [{ paddingHorizontal: 14, opacity: pressed ? 0.65 : 1 }]}
+            style={({ pressed }) => [
+              styles.headerMenuBtn,
+              { opacity: pressed ? 0.68 : 1 },
+            ]}
           >
             <Ionicons name="menu" size={22} color={palette.text} />
           </Pressable>
         ),
 
         drawerType: "front",
-        drawerStyle: { width: 300, backgroundColor: palette.card },
-        drawerActiveTintColor: palette.primary,
+        drawerStyle: {
+          width: drawerWidth,
+          backgroundColor: palette.bg,
+          borderTopRightRadius: 28,
+          borderBottomRightRadius: 28,
+        },
+
+        overlayColor: "rgba(45,36,77,0.22)",
+        sceneContainerStyle: {
+          backgroundColor: palette.bg,
+        },
+
+        swipeEnabled: true,
+        swipeEdgeWidth: 72,
+
+        drawerActiveTintColor: palette.purple,
         drawerInactiveTintColor: palette.text,
-        drawerLabelStyle: { fontSize: 14, fontWeight: "800" },
-        drawerItemStyle: { borderRadius: 14, marginHorizontal: 6, marginVertical: 4 },
-        drawerActiveBackgroundColor: "rgba(45,107,255,0.14)",
+        drawerLabelStyle: {
+          fontSize: 14,
+          fontWeight: "800",
+          marginLeft: -6,
+        },
+        drawerItemStyle: {
+          borderRadius: 18,
+          marginHorizontal: 6,
+          marginVertical: 4,
+          paddingHorizontal: 4,
+        },
+        drawerActiveBackgroundColor: "rgba(109,76,255,0.14)",
 
         drawerIcon: ({ color, size, focused }) => {
           const s = size ?? 20;
-          const c = focused ? palette.primary : color;
+          const c = focused ? palette.purple : color;
 
           switch (route.name) {
             case "Home":
@@ -284,74 +338,241 @@ export default function DrawerNavigator() {
       })}
     >
       <Drawer.Screen name="Home" component={HomeScreen} options={{ title: "Главная" }} />
-      <Drawer.Screen name="Recommendations" component={RecommendationsScreen} options={{ title: "Советы" }} />
-      <Drawer.Screen name="AddWorkout" component={AddWorkoutScreen} options={{ title: "Добавить тренировку" }} />
+      <Drawer.Screen
+        name="Recommendations"
+        component={RecommendationsScreen}
+        options={{ title: "Советы" }}
+      />
+      <Drawer.Screen
+        name="AddWorkout"
+        component={AddWorkoutScreen}
+        options={{ title: "Добавить тренировку" }}
+      />
       <Drawer.Screen name="History" component={HistoryScreen} options={{ title: "История" }} />
-      <Drawer.Screen name="Analytics" component={AnalyticsScreen} options={{ title: "Аналитика" }} />
-      <Drawer.Screen name="Achievements" component={AchievementsScreen} options={{ title: "Достижения" }} />
-      <Drawer.Screen name="HealthImport" component={HealthImportScreen} options={{ title: "Health Connect" }} />
+      <Drawer.Screen
+        name="Analytics"
+        component={AnalyticsScreen}
+        options={{ title: "Аналитика" }}
+      />
+      <Drawer.Screen
+        name="Achievements"
+        component={AchievementsScreen}
+        options={{ title: "Достижения" }}
+      />
+      <Drawer.Screen
+        name="HealthImport"
+        component={HealthImportScreen}
+        options={{ title: "Health Connect" }}
+      />
       <Drawer.Screen name="Profile" component={ProfileScreen} options={{ title: "Профиль" }} />
     </Drawer.Navigator>
   );
 }
 
 const styles = StyleSheet.create({
-  headerCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 12,
+  safe: {
+    flex: 1,
+    backgroundColor: palette.bg,
+  },
+
+  drawerScroll: {
+    backgroundColor: palette.bg,
+  },
+
+  drawerBgBlobTop: {
+    position: "absolute",
+    top: 120,
+    right: -40,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(124,231,255,0.14)",
+  },
+
+  drawerBgBlobBottom: {
+    position: "absolute",
+    left: -30,
+    bottom: 120,
+    width: 120,
+    height: 90,
+    backgroundColor: "rgba(255,141,216,0.12)",
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 60,
+    borderBottomLeftRadius: 60,
+    borderBottomRightRadius: 30,
+  },
+
+  heroCard: {
+    minHeight: 220,
+    borderRadius: 30,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
     overflow: "hidden",
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } }
-      : { elevation: 2 }),
-  },
-  glow1: {
-    position: "absolute",
-    top: -90,
-    left: -60,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-  },
-  glow2: {
-    position: "absolute",
-    top: -110,
-    right: -90,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
+    shadowColor: "#6D4CFF",
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
   },
 
-  headerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  headerActions: { marginTop: 10, flexDirection: "row", justifyContent: "flex-end" },
+  heroBlobTop: {
+    position: "absolute",
+    top: -20,
+    right: -12,
+    width: 120,
+    height: 84,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 26,
+    borderTopLeftRadius: 70,
+    borderTopRightRadius: 16,
+  },
 
-  iconBtn: {
-    width: 42,
+  heroBlobBottom: {
+    position: "absolute",
+    bottom: -12,
+    left: -10,
+    width: 128,
+    height: 64,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 36,
+    borderBottomLeftRadius: 80,
+    borderBottomRightRadius: 38,
+  },
+
+  heroKicker: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.6,
+    marginBottom: 12,
+  },
+
+  heroTitle: {
+    color: "#FFFFFF",
+    fontSize: 32,
+    lineHeight: 36,
+    fontWeight: "900",
+    marginBottom: 10,
+    maxWidth: "92%",
+  },
+
+  heroSubtitle: {
+    color: "rgba(255,255,255,0.84)",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
+    marginBottom: 16,
+    maxWidth: "94%",
+  },
+
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  avatarWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  avatarText: {
+    color: palette.purple,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  profileName: {
+    color: "#FFFFFF",
+    fontSize: 15.5,
+    fontWeight: "900",
+  },
+
+  profileMeta: {
+    color: "rgba(255,255,255,0.84)",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+
+  heroActionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  headerActionRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+
+  smallActionBtn: {
+    minWidth: 110,
     height: 42,
     borderRadius: 14,
-    borderWidth: 1,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
   },
 
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
+  smallActionText: {
+    color: palette.purpleDark,
+    fontSize: 12.5,
+    fontWeight: "900",
   },
-  avatarText: { fontSize: 16, fontWeight: "900" },
 
-  name: { fontSize: 14.5, fontWeight: "900" },
-  meta: { marginTop: 2, fontSize: 12, fontWeight: "700" },
+  listWrap: {
+    paddingHorizontal: 10,
+    paddingTop: 4,
+  },
 
   drawerFooter: {
-    borderTopWidth: 1,
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
   },
-  drawerFooterText: { fontSize: 12, fontWeight: "700" },
+
+  footerBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: palette.cardSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
+
+  footerBadgeText: {
+    color: palette.purple,
+    fontSize: 12.5,
+    fontWeight: "800",
+    marginLeft: 6,
+  },
+
+  drawerFooterText: {
+    color: palette.subtext,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  headerMenuBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
 });

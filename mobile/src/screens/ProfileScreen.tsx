@@ -12,8 +12,10 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
@@ -28,6 +30,30 @@ type Level = 'beginner' | 'intermediate' | 'advanced';
 type Gender = 'male' | 'female' | 'other' | 'unknown';
 
 const NOTIF_ENABLED_KEY = 'notif_enabled_v1';
+const REMINDER_CHANNEL_ID = 'reminders';
+
+const palette = {
+  bg: '#F5F2FF',
+  bg2: '#EEE9FF',
+  card: '#FFFFFF',
+  cardSoft: '#F4F0FF',
+
+  purple: '#6D4CFF',
+  purpleDark: '#5137D7',
+
+  text: '#2D244D',
+  subtext: '#7D739D',
+  muted: '#9D95BA',
+  line: '#E6E0FA',
+
+  cyan: '#7CE7FF',
+  pink: '#FF8DD8',
+  orange: '#FFB36B',
+  green: '#24A865',
+  danger: '#E5484D',
+  successSoft: 'rgba(36,168,101,0.10)',
+  dangerSoft: 'rgba(229,72,77,0.10)',
+};
 
 function clampNumStr(value: string) {
   return value.replace(/[^\d.,]/g, '').replace(',', '.');
@@ -60,42 +86,71 @@ function genderTitle(g: Gender) {
   return 'Не указано';
 }
 
-function makePalette(isDark: boolean) {
-  return {
-    bg: isDark ? '#0B0D12' : '#F4F6FA',
-    card: isDark ? '#121625' : '#FFFFFF',
-    text: isDark ? '#E9ECF5' : '#121722',
-    subtext: isDark ? '#A9B1C7' : '#5C667A',
-    border: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.10)',
-    primary: '#2D6BFF',
-    danger: '#E5484D',
-    inputBg: isDark ? 'rgba(255,255,255,0.06)' : '#F2F4F7',
-    softPrimary: isDark ? 'rgba(45,107,255,0.16)' : 'rgba(45,107,255,0.10)',
-    softDanger: isDark ? 'rgba(229,72,77,0.18)' : 'rgba(229,72,77,0.10)',
-    success: '#20B26B',
-    softSuccess: isDark ? 'rgba(32,178,107,0.16)' : 'rgba(32,178,107,0.10)',
-  };
+async function ensureReminderChannel() {
+  if (Platform.OS !== 'android') return;
+
+  await Notifications.setNotificationChannelAsync(REMINDER_CHANNEL_ID, {
+    name: 'Полезные напоминания',
+    description: 'Напоминания о тренировках и полезные уведомления приложения',
+    importance: Notifications.AndroidImportance.DEFAULT,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#6D4CFF',
+    sound: 'default',
+    showBadge: true,
+  });
 }
 
-function Section({
+function InfoBadge({
+  icon,
+  label,
+}: {
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <View style={styles.infoBadge}>
+      {icon}
+      <Text style={styles.infoBadgeText}>{label}</Text>
+    </View>
+  );
+}
+
+function SummaryStat({
+  value,
+  label,
+  tint,
+  icon,
+}: {
+  value: string;
+  label: string;
+  tint: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <View style={styles.summaryStat}>
+      <View style={[styles.summaryStatIcon, { backgroundColor: tint }]}>{icon}</View>
+      <Text style={styles.summaryStatValue}>{value}</Text>
+      <Text style={styles.summaryStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function SectionCard({
+  kicker,
   title,
   subtitle,
   children,
-  palette,
 }: {
+  kicker: string;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
-  palette: ReturnType<typeof makePalette>;
 }) {
   return (
-    <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
-      <View style={{ marginBottom: 10 }}>
-        <Text style={[styles.sectionTitle, { color: palette.text }]}>{title}</Text>
-        {subtitle ? (
-          <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>{subtitle}</Text>
-        ) : null}
-      </View>
+    <View style={styles.mainCard}>
+      <Text style={styles.sectionKicker}>{kicker}</Text>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {subtitle ? <Text style={styles.sectionDescription}>{subtitle}</Text> : null}
       {children}
     </View>
   );
@@ -107,7 +162,6 @@ function Field({
   onChangeText,
   placeholder,
   keyboardType,
-  palette,
   editable = true,
 }: {
   label: string;
@@ -115,12 +169,11 @@ function Field({
   onChangeText?: (v: string) => void;
   placeholder?: string;
   keyboardType?: 'default' | 'numeric' | 'phone-pad';
-  palette: ReturnType<typeof makePalette>;
   editable?: boolean;
 }) {
   return (
     <View style={{ marginBottom: 12 }}>
-      <Text style={[styles.fieldLabel, { color: palette.subtext }]}>{label}</Text>
+      <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -131,9 +184,6 @@ function Field({
         style={[
           styles.input,
           {
-            backgroundColor: palette.inputBg,
-            color: palette.text,
-            borderColor: palette.border,
             opacity: editable ? 1 : 0.72,
           },
         ]}
@@ -147,13 +197,11 @@ function ChipRow<T extends string>({
   options,
   getLabel,
   onChange,
-  palette,
 }: {
   value: T;
   options: T[];
   getLabel: (v: T) => string;
   onChange: (v: T) => void;
-  palette: ReturnType<typeof makePalette>;
 }) {
   return (
     <View style={styles.chipRow}>
@@ -166,13 +214,13 @@ function ChipRow<T extends string>({
             style={({ pressed }) => [
               styles.chip,
               {
-                borderColor: active ? palette.primary : palette.border,
-                backgroundColor: active ? 'rgba(45,107,255,0.14)' : palette.inputBg,
-                opacity: pressed ? 0.86 : 1,
+                backgroundColor: active ? palette.purple : palette.cardSoft,
+                borderColor: active ? palette.purple : palette.line,
+                opacity: pressed ? 0.88 : 1,
               },
             ]}
           >
-            <Text style={[styles.chipText, { color: active ? palette.primary : palette.text }]}>
+            <Text style={[styles.chipText, { color: active ? '#FFFFFF' : palette.text }]}>
               {getLabel(opt)}
             </Text>
           </Pressable>
@@ -182,27 +230,7 @@ function ChipRow<T extends string>({
   );
 }
 
-function StatMini({
-  value,
-  label,
-  palette,
-}: {
-  value: string;
-  label: string;
-  palette: ReturnType<typeof makePalette>;
-}) {
-  return (
-    <View style={[styles.statCard, { borderColor: palette.border, backgroundColor: palette.inputBg }]}>
-      <Text style={[styles.statValue, { color: palette.text }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: palette.subtext }]}>{label}</Text>
-    </View>
-  );
-}
-
 export default function ProfileScreen() {
-  const scheme = useColorScheme();
-  const palette = useMemo(() => makePalette(scheme === 'dark'), [scheme]);
-
   const { signOut } = useAuth();
 
   const [loading, setLoading] = useState(true);
@@ -222,8 +250,7 @@ export default function ProfileScreen() {
   const [stats, setStats] = useState<AnalyticsSummary | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
-  // Notifications
-  const [notifToggle, setNotifToggle] = useState(true); // in-app preference
+  const [notifToggle, setNotifToggle] = useState(true);
   const [systemNotifGranted, setSystemNotifGranted] = useState<boolean | null>(null);
   const [notifBusy, setNotifBusy] = useState(false);
 
@@ -264,15 +291,15 @@ export default function ProfileScreen() {
 
   const loadNotifState = useCallback(async () => {
     try {
+      await ensureReminderChannel();
+
       const saved = await SecureStore.getItemAsync(NOTIF_ENABLED_KEY);
-      if (saved === '0') setNotifToggle(false);
-      else setNotifToggle(true);
+      setNotifToggle(saved !== '0');
 
       const perms = await Notifications.getPermissionsAsync();
       const granted = perms?.granted || perms?.status === 'granted';
       setSystemNotifGranted(!!granted);
     } catch {
-      // если что-то пошло не так — не ломаем UI
       setSystemNotifGranted(null);
     }
   }, []);
@@ -282,7 +309,7 @@ export default function ProfileScreen() {
       load().catch(() => {});
       loadStats().catch(() => {});
       loadNotifState().catch(() => {});
-    }, [load, loadStats, loadNotifState]),
+    }, [load, loadStats, loadNotifState])
   );
 
   const pickAndUploadAvatar = useCallback(async () => {
@@ -291,7 +318,7 @@ export default function ProfileScreen() {
 
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert('Доступ', 'Разреши доступ к галерее, чтобы выбрать аватар');
+        Alert.alert('Доступ', 'Разрешите доступ к галерее, чтобы выбрать аватар.');
         return;
       }
 
@@ -346,11 +373,11 @@ export default function ProfileScreen() {
       const w = wStr ? Number(wStr) : undefined;
 
       if (hStr && (Number.isNaN(h) || (h as number) < 50 || (h as number) > 260)) {
-        Alert.alert('Проверьте рост', 'Рост должен быть числом от 50 до 260');
+        Alert.alert('Проверьте рост', 'Рост должен быть числом от 50 до 260.');
         return;
       }
       if (wStr && (Number.isNaN(w) || (w as number) < 20 || (w as number) > 400)) {
-        Alert.alert('Проверьте вес', 'Вес должен быть числом от 20 до 400');
+        Alert.alert('Проверьте вес', 'Вес должен быть числом от 20 до 400.');
         return;
       }
 
@@ -369,48 +396,73 @@ export default function ProfileScreen() {
     }
   }, [name, heightCm, weightKg, gender, level, load]);
 
-  const onToggleNotifications = useCallback(
-    async (next: boolean) => {
-      setNotifBusy(true);
-      try {
-        setNotifToggle(next);
-        await SecureStore.setItemAsync(NOTIF_ENABLED_KEY, next ? '1' : '0');
+  const onToggleNotifications = useCallback(async (next: boolean) => {
+    setNotifBusy(true);
 
-        // если включают — проверим системное разрешение
-        if (next) {
-          const perms = await Notifications.getPermissionsAsync();
-          const granted = perms?.granted || perms?.status === 'granted';
+    try {
+      setNotifToggle(next);
+      await SecureStore.setItemAsync(NOTIF_ENABLED_KEY, next ? '1' : '0');
 
-          if (!granted) {
-            const req = await Notifications.requestPermissionsAsync();
-            const ok = req?.granted || req?.status === 'granted';
-            setSystemNotifGranted(!!ok);
-
-            if (!ok) {
-              Alert.alert(
-                'Уведомления',
-                'Разрешение не выдано. Можно включить в настройках телефона.',
-                [
-                  { text: 'Ок', style: 'cancel' },
-                  {
-                    text: 'Открыть настройки',
-                    onPress: () => Notifications.openSettings(),
-                  },
-                ],
-              );
-            }
-          } else {
-            setSystemNotifGranted(true);
-          }
-        }
-      } catch {
-        // fallback: просто оставляем UI
-      } finally {
-        setNotifBusy(false);
+      if (!next) {
+        return;
       }
-    },
-    [],
-  );
+
+      await ensureReminderChannel();
+
+      const current = await Notifications.getPermissionsAsync();
+      const alreadyGranted = current?.granted || current?.status === 'granted';
+
+      if (alreadyGranted) {
+        setSystemNotifGranted(true);
+        return;
+      }
+
+      if (current?.canAskAgain === false) {
+        setSystemNotifGranted(false);
+        Alert.alert(
+          'Уведомления',
+          'Системное разрешение уже отклонено. Включите уведомления в настройках телефона.',
+          [
+            { text: 'Позже', style: 'cancel' },
+            {
+              text: 'Открыть настройки',
+              onPress: () => Notifications.openSettings(),
+            },
+          ]
+        );
+        return;
+      }
+
+      const req = await Notifications.requestPermissionsAsync();
+      const granted = req?.granted || req?.status === 'granted';
+      setSystemNotifGranted(!!granted);
+
+      if (!granted) {
+        if (req?.canAskAgain === false) {
+          Alert.alert(
+            'Уведомления',
+            'Разрешение не выдано. Откройте настройки телефона, чтобы включить уведомления.',
+            [
+              { text: 'Позже', style: 'cancel' },
+              {
+                text: 'Открыть настройки',
+                onPress: () => Notifications.openSettings(),
+              },
+            ]
+          );
+        } else {
+          Alert.alert(
+            'Уведомления',
+            'Разрешение не выдано. Вы можете включить уведомления позже.'
+          );
+        }
+      }
+    } catch {
+      Alert.alert('Ошибка', 'Не удалось обновить настройки уведомлений.');
+    } finally {
+      setNotifBusy(false);
+    }
+  }, []);
 
   const notifStatusText = useMemo(() => {
     if (!notifToggle) return 'Выключены в приложении';
@@ -422,129 +474,190 @@ export default function ProfileScreen() {
   const notifStatusColor = useMemo(() => {
     if (!notifToggle) return palette.subtext;
     if (systemNotifGranted === false) return palette.danger;
-    if (systemNotifGranted === true) return palette.success;
+    if (systemNotifGranted === true) return palette.green;
     return palette.subtext;
-  }, [notifToggle, systemNotifGranted, palette]);
+  }, [notifToggle, systemNotifGranted]);
 
   const workouts7 = statsLoading ? '—' : String(stats?.workoutsLast7 ?? '—');
   const prCount = statsLoading ? '—' : String(stats?.prCount ?? '—');
   const achValue = statsLoading ? '—' : `${stats?.achievementsEarned ?? 0}/${stats?.achievementsTotal ?? 0}`;
+  const totalWorkouts = statsLoading ? '—' : String(stats?.workoutsTotal ?? '—');
 
   return (
     <KeyboardAvoidingView
-      style={[styles.screen, { backgroundColor: palette.bg }]}
+      style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {/* Header card */}
-        <View style={[styles.headerCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <Pressable
-            onPress={pickAndUploadAvatar}
-            disabled={uploadingAvatar}
-            style={({ pressed }) => [{ opacity: pressed || uploadingAvatar ? 0.85 : 1 }]}
-          >
-            <View
-              style={[
-                styles.avatar,
-                {
-                  borderColor: palette.border,
-                  backgroundColor: 'rgba(45,107,255,0.12)',
-                  overflow: 'hidden',
-                },
-              ]}
-            >
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-              ) : (
-                <Text style={[styles.avatarText, { color: palette.primary }]}>{initials(name)}</Text>
-              )}
+      <StatusBar style="dark" />
 
-              <View style={[styles.avatarBadge, { backgroundColor: 'rgba(0,0,0,0.42)' }]}>
-                <Text style={styles.avatarBadgeText}>{uploadingAvatar ? '…' : '✎'}</Text>
+      <LinearGradient colors={[palette.bg, palette.bg2]} style={StyleSheet.absoluteFill} />
+
+      <View style={styles.blobTopRight} pointerEvents="none" />
+      <View style={styles.blobLeft} pointerEvents="none" />
+      <View style={styles.blobBottom} pointerEvents="none" />
+
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <LinearGradient
+          colors={[palette.purple, palette.purpleDark, '#7B61FF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroBlobTop} />
+          <View style={styles.heroBlobBottom} />
+
+          <Text style={styles.heroKicker}>SPORTTRACKER</Text>
+          <Text style={styles.heroTitle}>Профиль</Text>
+          <Text style={styles.heroSubtitle}>
+            Управляйте личными данными, уведомлениями и основными параметрами для аналитики.
+          </Text>
+
+          <View style={styles.heroProfileRow}>
+            <Pressable
+              onPress={pickAndUploadAvatar}
+              disabled={uploadingAvatar}
+              style={({ pressed }) => [{ opacity: pressed || uploadingAvatar ? 0.88 : 1 }]}
+            >
+              <View style={styles.heroAvatar}>
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                ) : (
+                  <Text style={styles.heroAvatarText}>{initials(name)}</Text>
+                )}
+
+                <View style={styles.heroAvatarBadge}>
+                  <Text style={styles.heroAvatarBadgeText}>{uploadingAvatar ? '…' : '✎'}</Text>
+                </View>
+              </View>
+            </Pressable>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroName} numberOfLines={1}>
+                {name?.trim() ? name : 'Пользователь'}
+              </Text>
+              <Text style={styles.heroMeta} numberOfLines={1}>
+                {formatPhone(phone)}
+              </Text>
+
+              <View style={styles.heroBadge}>
+                <Text style={styles.heroBadgeText}>{levelTitle(level)}</Text>
               </View>
             </View>
-          </Pressable>
-
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>
-              {name?.trim() ? name : 'Пользователь'}
-            </Text>
-            <Text style={[styles.meta, { color: palette.subtext }]} numberOfLines={1}>
-              {formatPhone(phone)}
-              {userId ? ` • ID ${userId.slice(0, 8)}` : ''}
-            </Text>
           </View>
+        </LinearGradient>
 
-          <View style={{ alignItems: 'flex-end' }}>
-            <View style={[styles.badge, { borderColor: palette.border, backgroundColor: palette.softPrimary }]}>
-              <Text style={[styles.badgeText, { color: palette.primary }]}>{levelTitle(level)}</Text>
-            </View>
-          </View>
+        <View style={styles.statsRow}>
+          <SummaryStat
+            value={workouts7}
+            label="за 7 дней"
+            tint="rgba(124,231,255,0.28)"
+            icon={<Ionicons name="calendar-outline" size={18} color={palette.purple} />}
+          />
+          <SummaryStat
+            value={prCount}
+            label="личных рекордов"
+            tint="rgba(255,179,107,0.28)"
+            icon={<Ionicons name="flash-outline" size={18} color={palette.purple} />}
+          />
+          <SummaryStat
+            value={achValue}
+            label="достижений"
+            tint="rgba(255,141,216,0.28)"
+            icon={<Ionicons name="trophy-outline" size={18} color={palette.purple} />}
+          />
         </View>
 
-        {/* Notifications */}
-        <Section title="Уведомления" subtitle="Можно отключить в приложении или в настройках системы" palette={palette}>
-          <View style={[styles.row, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
+        <SectionCard
+          kicker="УВЕДОМЛЕНИЯ"
+          title="Полезные напоминания"
+          subtitle="Управляйте уведомлениями внутри приложения и проверяйте системный доступ."
+        >
+          <View style={styles.badgesRow}>
+            <InfoBadge
+              icon={<Ionicons name="notifications-outline" size={14} color={palette.purple} />}
+              label="Напоминания"
+            />
+            <InfoBadge
+              icon={<Ionicons name="shield-checkmark-outline" size={14} color={palette.purple} />}
+              label="Контроль доступа"
+            />
+          </View>
+
+          <View style={styles.notificationRow}>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.rowTitle, { color: palette.text }]}>Получать уведомления</Text>
-              <Text style={[styles.rowSub, { color: notifStatusColor }]}>{notifStatusText}</Text>
+              <Text style={styles.notificationTitle}>Получать уведомления</Text>
+              <Text style={[styles.notificationSub, { color: notifStatusColor }]}>
+                {notifStatusText}
+              </Text>
             </View>
 
             <Switch
               value={notifToggle}
-              onValueChange={(v) => onToggleNotifications(v)}
+              onValueChange={onToggleNotifications}
               disabled={notifBusy}
-              trackColor={{ false: 'rgba(0,0,0,0.2)', true: 'rgba(45,107,255,0.35)' }}
-              thumbColor={notifToggle ? palette.primary : '#bbb'}
+              trackColor={{ false: 'rgba(0,0,0,0.18)', true: 'rgba(109,76,255,0.35)' }}
+              thumbColor={notifToggle ? palette.purple : '#bbb'}
             />
           </View>
 
           {notifToggle && systemNotifGranted === false ? (
             <Pressable
               onPress={() => Notifications.openSettings()}
-              style={({ pressed }) => [{ marginTop: 10, opacity: pressed ? 0.8 : 1 }]}
+              style={({ pressed }) => [{ marginTop: 10, opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={[styles.link, { color: palette.primary }]}>Открыть настройки уведомлений →</Text>
+              <Text style={styles.linkText}>Открыть настройки уведомлений →</Text>
             </Pressable>
           ) : null}
 
-          <View style={[styles.hint, { backgroundColor: palette.softSuccess, borderColor: palette.border }]}>
-            <Text style={[styles.hintText, { color: palette.text }]}>
-              Мы отправляем только важное: коды входа и полезные напоминания (когда добавим).
+          <View style={styles.hintBox}>
+            <Text style={styles.hintText}>
+              Мы используем уведомления для полезных напоминаний о тренировках и активности.
             </Text>
           </View>
-        </Section>
+        </SectionCard>
 
-        <Section title="Аккаунт" subtitle="Имя и аватар" palette={palette}>
+        <SectionCard
+          kicker="АККАУНТ"
+          title="Личные данные"
+          subtitle="Имя, аватар и контактная информация."
+        >
           <Field
             label="Имя"
             value={name}
             onChangeText={setName}
-            placeholder="Как к вам обращаться"
-            palette={palette}
+            placeholder="Как к Вам обращаться"
           />
-          <Field label="Телефон" value={formatPhone(phone)} placeholder="—" palette={palette} editable={false} />
-        </Section>
+          <Field
+            label="Телефон"
+            value={formatPhone(phone)}
+            placeholder="—"
+            editable={false}
+          />
 
-        <Section title="Параметры" subtitle="То, что влияет на аналитику" palette={palette}>
-          <Text style={[styles.fieldLabel, { color: palette.subtext, marginBottom: 8 }]}>Пол</Text>
+          <Text style={styles.smallMeta}>
+            {userId ? `ID пользователя: ${userId.slice(0, 8)}` : 'ID недоступен'}
+          </Text>
+        </SectionCard>
+
+        <SectionCard
+          kicker="ПАРАМЕТРЫ"
+          title="Данные для аналитики"
+          subtitle="Эти значения помогают точнее считать прогресс и рекомендации."
+        >
+          <Text style={[styles.fieldLabel, { marginBottom: 8 }]}>Пол</Text>
           <ChipRow
             value={gender}
             options={['unknown', 'male', 'female', 'other']}
             getLabel={(g) => genderTitle(g as Gender)}
             onChange={(g) => setGender(g as Gender)}
-            palette={palette}
           />
 
-          <Text style={[styles.fieldLabel, { color: palette.subtext, marginTop: 14, marginBottom: 8 }]}>
-            Уровень
-          </Text>
+          <Text style={[styles.fieldLabel, { marginTop: 14, marginBottom: 8 }]}>Уровень</Text>
           <ChipRow
             value={level}
             options={['beginner', 'intermediate', 'advanced']}
             getLabel={(l) => levelTitle(l as Level)}
             onChange={(l) => setLevel(l as Level)}
-            palette={palette}
           />
 
           <View style={styles.twoCols}>
@@ -555,7 +668,6 @@ export default function ProfileScreen() {
                 onChangeText={(v) => setHeightCm(clampNumStr(v))}
                 placeholder="180"
                 keyboardType="numeric"
-                palette={palette}
               />
             </View>
 
@@ -568,43 +680,68 @@ export default function ProfileScreen() {
                 onChangeText={(v) => setWeightKg(clampNumStr(v))}
                 placeholder="75"
                 keyboardType="numeric"
-                palette={palette}
               />
             </View>
           </View>
-        </Section>
+        </SectionCard>
 
-        <Section title="Статистика" subtitle="Короткая сводка по прогрессу" palette={palette}>
-          <View style={styles.statsRow}>
-            <StatMini value={workouts7} label="Трен. за 7 дней" palette={palette} />
-            <StatMini value={prCount} label="PR" palette={palette} />
-            <StatMini value={achValue} label="Достижений" palette={palette} />
+        <SectionCard
+          kicker="СТАТИСТИКА"
+          title="Короткая сводка"
+          subtitle="Главные показатели Вашего текущего прогресса."
+        >
+          <View style={styles.statsMiniRow}>
+            <SummaryStat
+              value={workouts7}
+              label="трен. за 7 дней"
+              tint="rgba(124,231,255,0.28)"
+              icon={<Ionicons name="calendar-outline" size={18} color={palette.purple} />}
+            />
+            <SummaryStat
+              value={prCount}
+              label="PR"
+              tint="rgba(255,179,107,0.28)"
+              icon={<Ionicons name="flash-outline" size={18} color={palette.purple} />}
+            />
+            <SummaryStat
+              value={achValue}
+              label="достижений"
+              tint="rgba(255,141,216,0.28)"
+              icon={<Ionicons name="trophy-outline" size={18} color={palette.purple} />}
+            />
           </View>
 
-          <Text style={[styles.smallMeta, { color: palette.subtext, marginTop: 10 }]}>
-            Всего тренировок: {statsLoading ? '…' : String(stats?.workoutsTotal ?? '—')}
-          </Text>
-        </Section>
+          <Text style={styles.smallMeta}>Всего тренировок: {totalWorkouts}</Text>
+        </SectionCard>
 
         <Pressable
           style={({ pressed }) => [
-            styles.primaryBtn,
-            { backgroundColor: palette.primary, opacity: loading || saving ? 0.65 : pressed ? 0.88 : 1 },
+            styles.saveButtonWrap,
+            { opacity: loading || saving ? 0.65 : pressed ? 0.9 : 1 },
           ]}
           onPress={onSave}
           disabled={loading || saving}
         >
-          <Text style={styles.primaryBtnText}>{saving ? 'Сохраняю…' : 'Сохранить изменения'}</Text>
+          <LinearGradient
+            colors={[palette.purple, palette.purpleDark]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.saveButton}
+          >
+            <Text style={styles.saveButtonText}>
+              {saving ? 'Сохраняем…' : 'Сохранить изменения'}
+            </Text>
+          </LinearGradient>
         </Pressable>
 
         <Pressable
-          style={({ pressed }) => [
-            styles.secondaryBtn,
-            { borderColor: palette.border, backgroundColor: palette.card, opacity: pressed ? 0.9 : 1 },
-          ]}
+          style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
           onPress={signOut}
         >
-          <Text style={[styles.secondaryBtnText, { color: palette.danger }]}>Выйти</Text>
+          <View style={styles.logoutButton}>
+            <MaterialCommunityIcons name="logout" size={18} color={palette.danger} />
+            <Text style={styles.logoutButtonText}>Выйти</Text>
+          </View>
         </Pressable>
 
         <View style={{ height: 24 }} />
@@ -614,33 +751,143 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  content: { padding: 16, paddingTop: 18 },
-
-  headerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    marginBottom: 14,
-    ...(Platform.OS === 'ios'
-      ? { shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
-      : { elevation: 2 }),
+  screen: {
+    flex: 1,
+    backgroundColor: palette.bg,
   },
 
-  avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 16,
-    borderWidth: 1,
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
+
+  blobTopRight: {
+    position: 'absolute',
+    top: -20,
+    right: -10,
+    width: 140,
+    height: 100,
+    backgroundColor: 'rgba(109,76,255,0.14)',
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 22,
+    borderTopLeftRadius: 80,
+    borderTopRightRadius: 12,
+  },
+
+  blobLeft: {
+    position: 'absolute',
+    left: -28,
+    top: 240,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(184,168,255,0.16)',
+  },
+
+  blobBottom: {
+    position: 'absolute',
+    right: -20,
+    bottom: 150,
+    width: 120,
+    height: 76,
+    backgroundColor: 'rgba(124,231,255,0.16)',
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 26,
+    borderBottomLeftRadius: 60,
+    borderBottomRightRadius: 60,
+  },
+
+  heroCard: {
+    minHeight: 240,
+    borderRadius: 30,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 18,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: '#6D4CFF',
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+
+  heroBlobTop: {
+    position: 'absolute',
+    top: -20,
+    right: -12,
+    width: 120,
+    height: 84,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 26,
+    borderTopLeftRadius: 70,
+    borderTopRightRadius: 16,
+  },
+
+  heroBlobBottom: {
+    position: 'absolute',
+    bottom: -12,
+    left: -10,
+    width: 128,
+    height: 64,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 36,
+    borderBottomLeftRadius: 80,
+    borderBottomRightRadius: 38,
+  },
+
+  heroKicker: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+    marginBottom: 12,
+  },
+
+  heroTitle: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '900',
+    marginBottom: 10,
+    maxWidth: '86%',
+  },
+
+  heroSubtitle: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 14.5,
+    lineHeight: 21,
+    fontWeight: '600',
+    maxWidth: '92%',
+    marginBottom: 18,
+  },
+
+  heroProfileRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+
+  heroAvatar: {
+    width: 66,
+    height: 66,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
-  avatarText: { fontSize: 18, fontWeight: '900' },
 
-  avatarBadge: {
+  heroAvatarText: {
+    color: palette.purple,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+
+  heroAvatarBadge: {
     position: 'absolute',
     right: 6,
     bottom: 6,
@@ -649,96 +896,277 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.42)',
   },
-  avatarBadgeText: { color: '#fff', fontWeight: '900', fontSize: 11 },
 
-  name: { fontSize: 18, fontWeight: '900', marginBottom: 2 },
-  meta: { fontSize: 12.5, fontWeight: '700' },
+  heroAvatarBadgeText: {
+    color: '#fff',
+    fontWeight: '900',
+    fontSize: 11,
+  },
 
-  badge: {
+  heroName: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  heroMeta: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 12.5,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+
+  heroBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+
+  heroBadgeText: {
+    color: palette.purple,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 16,
+  },
+
+  statsMiniRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+
+  mainCard: {
+    backgroundColor: palette.card,
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    borderWidth: 1,
+    borderColor: palette.line,
+    marginBottom: 16,
+  },
+
+  sectionKicker: {
+    color: palette.purple,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    marginBottom: 8,
+  },
+
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 29,
+    lineHeight: 32,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+
+  sectionDescription: {
+    color: palette.subtext,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+
+  badgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+
+  infoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.cardSoft,
     borderRadius: 999,
-    borderWidth: 1,
-  },
-  badgeText: { fontSize: 12, fontWeight: '900' },
-
-  section: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 14,
-    ...(Platform.OS === 'ios'
-      ? { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
-      : { elevation: 1 }),
-  },
-  sectionTitle: { fontSize: 15.5, fontWeight: '900' },
-  sectionSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: '700' },
-
-  fieldLabel: { fontSize: 12.5, fontWeight: '900' },
-  input: {
-    marginTop: 6,
-    borderRadius: 14,
-    borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
-    fontSize: 15.5,
+    paddingVertical: 8,
+  },
+
+  infoBadgeText: {
+    color: palette.purple,
+    fontSize: 12.5,
     fontWeight: '800',
+    marginLeft: 6,
   },
 
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
-  chipText: { fontSize: 13, fontWeight: '900' },
-
-  twoCols: { flexDirection: 'row', marginTop: 10 },
-
-  statsRow: { flexDirection: 'row', gap: 10 },
-  statCard: {
-    flex: 1,
+  notificationRow: {
     borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statValue: { fontSize: 18, fontWeight: '900' },
-  statLabel: { marginTop: 4, fontSize: 12, fontWeight: '800', textAlign: 'center' },
-
-  smallMeta: { fontSize: 12.5, fontWeight: '800' },
-
-  primaryBtn: {
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  primaryBtnText: { color: '#fff', fontSize: 15.5, fontWeight: '900' },
-
-  secondaryBtn: {
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-    borderWidth: 1,
-  },
-  secondaryBtnText: { fontSize: 15.5, fontWeight: '900' },
-
-  // Notifications row
-  row: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 12,
+    borderColor: palette.line,
+    borderRadius: 20,
+    paddingHorizontal: 14,
     paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    backgroundColor: palette.cardSoft,
   },
-  rowTitle: { fontSize: 14.5, fontWeight: '900' },
-  rowSub: { marginTop: 4, fontSize: 12.5, fontWeight: '800' },
 
-  hint: { borderWidth: 1, borderRadius: 16, padding: 12, marginTop: 10 },
-  hintText: { fontSize: 12.5, fontWeight: '800', lineHeight: 18 },
+  notificationTitle: {
+    color: palette.text,
+    fontSize: 14.5,
+    fontWeight: '900',
+  },
 
-  link: { fontSize: 13.5, fontWeight: '900' },
+  notificationSub: {
+    marginTop: 4,
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+
+  hintBox: {
+    borderWidth: 1,
+    borderColor: palette.line,
+    borderRadius: 18,
+    padding: 12,
+    marginTop: 10,
+    backgroundColor: palette.successSoft,
+  },
+
+  hintText: {
+    color: palette.text,
+    fontSize: 12.5,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+
+  linkText: {
+    color: palette.purple,
+    fontSize: 13.5,
+    fontWeight: '900',
+  },
+
+  fieldLabel: {
+    color: palette.subtext,
+    fontSize: 12.5,
+    fontWeight: '900',
+  },
+
+  input: {
+    marginTop: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.cardSoft,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    fontSize: 15.5,
+    fontWeight: '800',
+    color: palette.text,
+  },
+
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+
+  chip: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+
+  chipText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  twoCols: {
+    flexDirection: 'row',
+    marginTop: 10,
+  },
+
+  summaryStat: {
+    flex: 1,
+    backgroundColor: palette.cardSoft,
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: palette.line,
+  },
+
+  summaryStatIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+
+  summaryStatValue: {
+    color: palette.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  summaryStatLabel: {
+    color: palette.subtext,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+    textAlign: 'center',
+  },
+
+  smallMeta: {
+    color: palette.subtext,
+    fontSize: 12.5,
+    fontWeight: '800',
+    marginTop: 10,
+  },
+
+  saveButtonWrap: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    marginTop: 2,
+  },
+
+  saveButton: {
+    minHeight: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15.5,
+    fontWeight: '900',
+  },
+
+  logoutButton: {
+    borderRadius: 18,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.card,
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  logoutButtonText: {
+    color: palette.danger,
+    fontSize: 15.5,
+    fontWeight: '900',
+  },
 });

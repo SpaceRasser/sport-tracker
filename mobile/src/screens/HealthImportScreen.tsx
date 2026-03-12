@@ -1,18 +1,20 @@
-// mobile/src/screens/HealthConnectScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   View,
-  useColorScheme,
   ActivityIndicator,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { api } from '../api/client';
 
@@ -33,42 +35,49 @@ type HcSession = {
   id: string;
   startTime: string;
   endTime: string;
-  exerciseTypeText?: string; // нормализованная строка
+  exerciseTypeText?: string;
 };
 
 const HC_LAST_IMPORT_KEY = 'hc_last_import_end_time';
 const MAX_LIMIT = 50;
 
-function makePalette(isDark: boolean) {
-  return {
-    bg: isDark ? '#0B0D12' : '#F4F6FA',
-    card: isDark ? '#121625' : '#FFFFFF',
-    text: isDark ? '#E9ECF5' : '#121722',
-    subtext: isDark ? '#A9B1C7' : '#5C667A',
-    border: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,24,40,0.08)',
-    primary: '#2D6BFF',
-    danger: '#E5484D',
-    inputBg: isDark ? 'rgba(255,255,255,0.06)' : '#F2F4F7',
-    softPrimary: isDark ? 'rgba(45,107,255,0.16)' : 'rgba(45,107,255,0.10)',
-    successBg: isDark ? 'rgba(46,125,50,0.18)' : 'rgba(46,125,50,0.12)',
-    successText: isDark ? '#7CF08D' : '#1F7A2E',
-    warnBg: isDark ? 'rgba(255,209,102,0.16)' : 'rgba(255,209,102,0.12)',
-    warnText: isDark ? '#FFD166' : '#8A5A00',
-  };
-}
+const palette = {
+  bg: '#F5F2FF',
+  bg2: '#EEE9FF',
+  card: '#FFFFFF',
+  cardSoft: '#F4F0FF',
 
-// ---- helpers ----
+  purple: '#6D4CFF',
+  purpleDark: '#5137D7',
+
+  text: '#2D244D',
+  subtext: '#7D739D',
+  muted: '#9D95BA',
+  line: '#E6E0FA',
+
+  cyan: '#7CE7FF',
+  pink: '#FF8DD8',
+  orange: '#FFB36B',
+  green: '#24A865',
+  greenSoft: 'rgba(36,168,101,0.10)',
+  purpleSoftBg: 'rgba(109,76,255,0.10)',
+  warnBg: 'rgba(255,179,107,0.12)',
+  warnText: '#8A5A00',
+};
+
 function toIso(d: Date) {
   return d.toISOString();
 }
 
 function rangeFor(period: Period) {
   const now = new Date();
+
   if (period === 'today') {
     const start = new Date(now);
     start.setHours(0, 0, 0, 0);
     return { startTime: toIso(start), endTime: toIso(now) };
   }
+
   const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   return { startTime: toIso(start), endTime: toIso(now) };
 }
@@ -97,6 +106,7 @@ function normalizeExerciseTypeToString(exerciseType: any): string {
       return String(exerciseType);
     }
   }
+
   return String(exerciseType);
 }
 
@@ -111,8 +121,8 @@ function mapExerciseToActivityCode(exerciseTypeText?: string | null): 'WALK' | '
 }
 
 function iconFor(code: 'WALK' | 'RUN' | 'BIKE') {
-  if (code === 'BIKE') return 'bicycle-outline';
-  return 'walk-outline';
+  if (code === 'BIKE') return 'bicycle-outline' as const;
+  return 'walk-outline' as const;
 }
 
 function titleFor(code: 'WALK' | 'RUN' | 'BIKE') {
@@ -150,7 +160,6 @@ async function getActivitiesMap(): Promise<Map<string, ActivityType>> {
   return new Map(items.map((a) => [a.code, a]));
 }
 
-// readRecords pageSize <= 50
 async function readAll(recordType: string, timeRange: { startTime: string; endTime: string }) {
   const all: any[] = [];
   let pageToken: string | undefined = undefined;
@@ -173,7 +182,6 @@ async function readAll(recordType: string, timeRange: { startTime: string; endTi
   return all;
 }
 
-// мягкая проверка “дубликата” по marker в notes
 async function alreadyImportedByMarker(marker: string) {
   try {
     const now = new Date();
@@ -186,60 +194,127 @@ async function alreadyImportedByMarker(marker: string) {
   }
 }
 
-function HeaderStat({
+function StatusBadge({
   icon,
-  value,
   label,
-  palette,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
-  value: string;
+  icon: React.ReactNode;
   label: string;
-  palette: ReturnType<typeof makePalette>;
 }) {
   return (
-    <View style={[styles.statCard, { borderColor: palette.border, backgroundColor: palette.inputBg }]}>
-      <Ionicons name={icon} size={16} color={palette.primary} />
-      <Text style={[styles.statValue, { color: palette.text }]} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={[styles.statLabel, { color: palette.subtext }]}>{label}</Text>
+    <View style={styles.infoBadge}>
+      {icon}
+      <Text style={styles.infoBadgeText}>{label}</Text>
     </View>
   );
 }
 
-function Chip({
+function StatCard({
+  icon,
+  value,
+  label,
+  tint,
+}: {
+  icon: React.ReactNode;
+  value: string;
+  label: string;
+  tint: string;
+}) {
+  return (
+    <View style={styles.statCard}>
+      <View style={[styles.statIconWrap, { backgroundColor: tint }]}>{icon}</View>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function FilterChip({
   label,
   active,
   onPress,
-  palette,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
-  palette: ReturnType<typeof makePalette>;
+}) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}>
+      <View
+        style={[
+          styles.filterChip,
+          active ? styles.filterChipActive : styles.filterChipInactive,
+        ]}
+      >
+        <Text
+          style={[
+            styles.filterChipText,
+            { color: active ? '#FFFFFF' : palette.purple },
+          ]}
+        >
+          {label}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function PrimaryButton({
+  title,
+  onPress,
+  disabled,
+  loading,
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       style={({ pressed }) => [
-        styles.chip,
-        {
-          backgroundColor: active ? palette.softPrimary : palette.inputBg,
-          borderColor: active ? palette.primary : palette.border,
-          opacity: pressed ? 0.86 : 1,
-        },
+        styles.primaryButton,
+        { opacity: disabled ? 0.6 : pressed ? 0.92 : 1 },
       ]}
     >
-      <Text style={{ color: active ? palette.primary : palette.text, fontWeight: '900' }}>{label}</Text>
+      <LinearGradient
+        colors={[palette.purple, palette.purpleDark]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.primaryButtonGradient}
+      >
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>{title}</Text>}
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+function SecondaryButton({
+  title,
+  onPress,
+  disabled,
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.secondaryButton,
+        { opacity: disabled ? 0.6 : pressed ? 0.92 : 1 },
+      ]}
+    >
+      <Text style={styles.secondaryButtonText}>{title}</Text>
     </Pressable>
   );
 }
 
 export default function HealthConnectScreen() {
-  const scheme = useColorScheme();
-  const palette = useMemo(() => makePalette(scheme === 'dark'), [scheme]);
-
   const [period, setPeriod] = useState<Period>('7d');
 
   const [screenLoading, setScreenLoading] = useState(true);
@@ -255,7 +330,7 @@ export default function HealthConnectScreen() {
   const [previewCalories, setPreviewCalories] = useState<number>(0);
 
   const [importing, setImporting] = useState(false);
-  const [importIndex, setImportIndex] = useState(0); // прогресс импортирования
+  const [importIndex, setImportIndex] = useState(0);
   const [importTotal, setImportTotal] = useState(0);
 
   const mounted = useRef(true);
@@ -267,7 +342,6 @@ export default function HealthConnectScreen() {
     };
   }, []);
 
-  // load last import cursor
   useEffect(() => {
     (async () => {
       const saved = await SecureStore.getItemAsync(HC_LAST_IMPORT_KEY);
@@ -275,12 +349,22 @@ export default function HealthConnectScreen() {
     })();
   }, []);
 
+  const openSettingsSafe = useCallback(async () => {
+    try {
+      await openHealthConnectSettings();
+    } catch {
+      Alert.alert(
+        'Health Connect',
+        'Не удалось открыть Health Connect автоматически. Откройте его вручную в настройках устройства.'
+      );
+    }
+  }, []);
+
   const ensureReady = useCallback(async () => {
     setStatus('INIT');
 
     if (Platform.OS !== 'android') {
       setStatus('ERROR');
-      Alert.alert('Health Connect', 'Доступно только на Android.');
       return false;
     }
 
@@ -313,7 +397,6 @@ export default function HealthConnectScreen() {
     async (p: Period) => {
       const base = rangeFor(p);
 
-      // курсор: импортируем только после lastImportEnd
       const start = lastImportEnd
         ? new Date(Math.max(new Date(base.startTime).getTime(), new Date(lastImportEnd).getTime()))
         : new Date(base.startTime);
@@ -338,7 +421,6 @@ export default function HealthConnectScreen() {
 
       setSessions(list);
 
-      // превью метрик по периоду (не по каждой сессии)
       const [stepsRecs, distRecs, calRecs] = await Promise.all([
         readAll('Steps', timeRange),
         readAll('Distance', timeRange),
@@ -346,47 +428,73 @@ export default function HealthConnectScreen() {
       ]);
 
       const totalSteps = stepsRecs.reduce((acc, r: any) => acc + safeNum(r?.count), 0);
-      const totalDistM = distRecs.reduce((acc, r: any) => acc + safeNum(r?.distance?.inMeters ?? r?.distance), 0);
+      const totalDistM = distRecs.reduce(
+        (acc, r: any) => acc + safeNum(r?.distance?.inMeters ?? r?.distance),
+        0
+      );
       const totalDistKm = totalDistM / 1000;
-      const totalCals = calRecs.reduce((acc, r: any) => acc + safeNum(r?.energy?.inKilocalories ?? r?.energy), 0);
+      const totalCals = calRecs.reduce(
+        (acc, r: any) => acc + safeNum(r?.energy?.inKilocalories ?? r?.energy),
+        0
+      );
 
       setPreviewSteps(Math.round(totalSteps));
       setPreviewDistanceKm(Math.round(totalDistKm * 100) / 100);
       setPreviewCalories(Math.round(totalCals));
     },
-    [lastImportEnd],
+    [lastImportEnd]
   );
 
   const refreshAll = useCallback(
-    async (p: Period) => {
-      // авто-обновление без кнопки: просто используем этот метод в нужных местах
-      const ok = await ensureReady();
-      if (!ok) return;
+    async (p: Period, mode: 'initial' | 'refresh' = 'initial') => {
+      if (mode === 'refresh') setRefreshing(true);
 
-      await loadSessionsInternal(p);
+      try {
+        const ok = await ensureReady();
+
+        if (!ok) {
+          setSessions([]);
+          setPreviewDistanceKm(0);
+          setPreviewSteps(0);
+          setPreviewCalories(0);
+          return;
+        }
+
+        await loadSessionsInternal(p);
+      } finally {
+        if (mode === 'refresh' && mounted.current) setRefreshing(false);
+      }
     },
-    [ensureReady, loadSessionsInternal],
+    [ensureReady, loadSessionsInternal]
   );
 
-  // bootstrap on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        setScreenLoading(true);
-        await refreshAll(period);
-      } catch (e: any) {
-        setStatus('ERROR');
-        Alert.alert('Ошибка', e?.message ?? 'Не удалось инициализировать Health Connect');
-      } finally {
-        if (mounted.current) setScreenLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-  // auto refresh on period change (no button)
+      (async () => {
+        try {
+          setScreenLoading(true);
+          await refreshAll(period, 'initial');
+        } catch (e: any) {
+          if (!cancelled) {
+            setStatus('ERROR');
+            Alert.alert('Ошибка', e?.message ?? 'Не удалось инициализировать Health Connect');
+          }
+        } finally {
+          if (!cancelled && mounted.current) setScreenLoading(false);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [period, refreshAll])
+  );
+
   useEffect(() => {
     if (status !== 'READY') return;
+
     (async () => {
       try {
         setRefreshing(true);
@@ -409,7 +517,7 @@ export default function HealthConnectScreen() {
 
     const actMap = await getActivitiesMap();
     const activity = actMap.get(code) ?? actMap.get('WALK');
-    if (!activity) throw new Error('Нет activityType для WALK/RUN/BIKE. Проверь seed activities.');
+    if (!activity) throw new Error('Нет activityType для WALK/RUN/BIKE. Проверьте seed activities.');
 
     const startTime = new Date(s.startTime);
     const endTime = new Date(s.endTime);
@@ -424,10 +532,16 @@ export default function HealthConnectScreen() {
     ]);
 
     const steps = Math.round(stepsRecs.reduce((acc, r: any) => acc + safeNum(r?.count), 0));
-    const distM = distRecs.reduce((acc, r: any) => acc + safeNum(r?.distance?.inMeters ?? r?.distance), 0);
+    const distM = distRecs.reduce(
+      (acc, r: any) => acc + safeNum(r?.distance?.inMeters ?? r?.distance),
+      0
+    );
     const distKm = distM / 1000;
 
-    const cals = calRecs.reduce((acc, r: any) => acc + safeNum(r?.energy?.inKilocalories ?? r?.energy), 0);
+    const cals = calRecs.reduce(
+      (acc, r: any) => acc + safeNum(r?.energy?.inKilocalories ?? r?.energy),
+      0
+    );
     const calories =
       cals > 0
         ? Math.round(cals)
@@ -461,7 +575,6 @@ export default function HealthConnectScreen() {
 
   const afterImportRefreshAndCursor = useCallback(
     async (importedSessions: HcSession[], createdCount: number) => {
-      // обновим cursor по максимальному endTime только если реально что-то создали
       const maxEnd = importedSessions
         .map((x) => new Date(x.endTime).getTime())
         .filter((t) => Number.isFinite(t));
@@ -472,7 +585,6 @@ export default function HealthConnectScreen() {
         setLastImportEnd(maxIso);
       }
 
-      // авто-рефреш списка (вместо кнопки)
       setRefreshing(true);
       try {
         await loadSessionsInternal(period);
@@ -480,7 +592,7 @@ export default function HealthConnectScreen() {
         setRefreshing(false);
       }
     },
-    [loadSessionsInternal, period],
+    [loadSessionsInternal, period]
   );
 
   const importAll = useCallback(async () => {
@@ -507,7 +619,7 @@ export default function HealthConnectScreen() {
 
       await afterImportRefreshAndCursor(sessions, created);
 
-      Alert.alert('Импорт завершён', `Добавлено: ${created}\nПропущено (уже было): ${skipped}`);
+      Alert.alert('Импорт завершён', `Добавлено: ${created}\nПропущено: ${skipped}`);
     } catch (e: any) {
       const msg = e?.response?.data?.message ?? e?.message ?? 'Не удалось импортировать';
       Alert.alert('Ошибка', String(msg));
@@ -543,321 +655,805 @@ export default function HealthConnectScreen() {
         setImportTotal(0);
       }
     },
-    [importOneSession, afterImportRefreshAndCursor],
+    [importOneSession, afterImportRefreshAndCursor]
   );
 
-  // ---- UI states ----
-  if (screenLoading) {
-    return (
-      <View style={[styles.screen, { backgroundColor: palette.bg }]}>
-        <View style={{ padding: 16 }}>
-          <Text style={{ color: palette.subtext, fontWeight: '900' }}>Подключаю Health Connect…</Text>
-        </View>
-      </View>
-    );
-  }
-
-  if (status === 'NEED_INSTALL') {
-    return (
-      <View style={[styles.screen, { backgroundColor: palette.bg, padding: 16 }]}>
-        <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <Text style={[styles.title, { color: palette.text }]}>Нужен Health Connect</Text>
-          <Text style={[styles.sub, { color: palette.subtext }]}>
-            Установи/обнови Health Connect и дай доступ к данным, чтобы импортировать тренировки.
-          </Text>
-
-          <View style={{ height: 12 }} />
-
-          <Pressable
-            onPress={() => openHealthConnectSettings()}
-            style={({ pressed }) => [
-              styles.btnPrimary,
-              { backgroundColor: palette.primary, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Text style={styles.btnPrimaryText}>Открыть Health Connect</Text>
-          </Pressable>
-
-          <View style={{ height: 10 }} />
-
-          <Pressable
-            onPress={async () => {
-              try {
-                setScreenLoading(true);
-                await refreshAll(period);
-              } finally {
-                setScreenLoading(false);
-              }
-            }}
-            style={({ pressed }) => [
-              styles.btn,
-              { backgroundColor: palette.inputBg, borderColor: palette.border, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Text style={[styles.btnText, { color: palette.text }]}>Проверить снова</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  if (status === 'NEED_PERMS') {
-    return (
-      <View style={[styles.screen, { backgroundColor: palette.bg, padding: 16 }]}>
-        <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <Text style={[styles.title, { color: palette.text }]}>Нужны разрешения</Text>
-          <Text style={[styles.sub, { color: palette.subtext }]}>
-            Разреши доступ к Exercise Session, Steps, Distance и Calories — иначе импорт не заработает.
-          </Text>
-
-          <View style={{ height: 12 }} />
-
-          <Pressable
-            onPress={async () => {
-              try {
-                setScreenLoading(true);
-                await refreshAll(period);
-              } finally {
-                setScreenLoading(false);
-              }
-            }}
-            style={({ pressed }) => [
-              styles.btnPrimary,
-              { backgroundColor: palette.primary, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Text style={styles.btnPrimaryText}>Запросить разрешения</Text>
-          </Pressable>
-
-          <View style={{ height: 10 }} />
-
-          <Pressable
-            onPress={() => openHealthConnectSettings()}
-            style={({ pressed }) => [
-              styles.btn,
-              { backgroundColor: palette.inputBg, borderColor: palette.border, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Text style={[styles.btnText, { color: palette.text }]}>Открыть настройки доступа</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  // READY
   const importingLabel =
     importing && importTotal > 0 ? `Импорт… ${importIndex}/${importTotal}` : importing ? 'Импорт…' : null;
 
-  return (
-    <View style={[styles.screen, { backgroundColor: palette.bg }]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={{ marginBottom: 12 }}>
-          <Text style={[styles.pageTitle, { color: palette.text }]}>Импорт из Health Connect</Text>
-          <Text style={[styles.pageSubtitle, { color: palette.subtext }]}>
-            Найденные сессии можно добавить в дневник тренировок в один тап.
-          </Text>
-        </View>
+  const statusTitle =
+    status === 'NEED_INSTALL'
+      ? 'Подключите Health Connect'
+      : status === 'NEED_PERMS'
+      ? 'Нужны разрешения'
+      : status === 'ERROR'
+      ? 'Что-то пошло не так'
+      : 'Проверяем Health Connect';
 
-        {/* Period */}
-        <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.sectionTitle, { color: palette.text }]}>Период</Text>
-              <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
-                Импортируются только новые сессии
-              </Text>
+  const statusSubtitle =
+    status === 'NEED_INSTALL'
+      ? 'На этом устройстве Health Connect недоступен или не установлен. После подключения вернитесь сюда, и импорт заработает.'
+      : status === 'NEED_PERMS'
+      ? 'Чтобы читать тренировки, шаги, дистанцию и калории, приложению нужен доступ к данным Health Connect.'
+      : status === 'ERROR'
+      ? 'Не удалось проверить состояние Health Connect. Повторите попытку ещё раз.'
+      : 'Подождите немного, приложение проверяет доступ к данным Health Connect.';
+
+  if (screenLoading) {
+    return (
+      <View style={styles.screen}>
+        <StatusBar barStyle="dark-content" backgroundColor={palette.bg} />
+        <LinearGradient colors={[palette.bg, palette.bg2]} style={StyleSheet.absoluteFill} />
+        <View style={styles.blobTopRight} pointerEvents="none" />
+        <View style={styles.blobLeft} pointerEvents="none" />
+        <View style={styles.blobBottom} pointerEvents="none" />
+
+        <View style={styles.centerWrap}>
+          <LinearGradient
+            colors={[palette.purple, palette.purpleDark, '#7B61FF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroCard}
+          >
+            <View style={styles.heroBlobTop} />
+            <View style={styles.heroBlobBottom} />
+
+            <Text style={styles.heroKicker}>SPORTTRACKER</Text>
+            <Text style={styles.heroTitle}>Health Connect</Text>
+            <Text style={styles.heroSubtitle}>Проверяем доступ и подключение…</Text>
+
+            <View style={styles.heroCircle}>
+              <ActivityIndicator color={palette.purple} />
+            </View>
+          </LinearGradient>
+        </View>
+      </View>
+    );
+  }
+
+  if (status !== 'READY') {
+    return (
+      <View style={styles.screen}>
+        <StatusBar barStyle="dark-content" backgroundColor={palette.bg} />
+        <LinearGradient colors={[palette.bg, palette.bg2]} style={StyleSheet.absoluteFill} />
+        <View style={styles.blobTopRight} pointerEvents="none" />
+        <View style={styles.blobLeft} pointerEvents="none" />
+        <View style={styles.blobBottom} pointerEvents="none" />
+
+        <ScrollView contentContainerStyle={styles.gateScrollContent} showsVerticalScrollIndicator={false}>
+          <LinearGradient
+            colors={[palette.purple, palette.purpleDark, '#7B61FF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroCard}
+          >
+            <View style={styles.heroBlobTop} />
+            <View style={styles.heroBlobBottom} />
+
+            <Text style={styles.heroKicker}>SPORTTRACKER</Text>
+            <Text style={styles.heroTitle}>Health Connect</Text>
+            <Text style={styles.heroSubtitle}>{statusTitle}</Text>
+
+            <View style={styles.heroCircle}>
+              <Ionicons
+                name={status === 'NEED_PERMS' ? 'shield-checkmark' : 'fitness'}
+                size={30}
+                color={palette.purple}
+              />
+            </View>
+          </LinearGradient>
+
+          <View style={styles.mainCard}>
+            <Text style={styles.sectionKicker}>ПОДКЛЮЧЕНИЕ</Text>
+            <Text style={styles.sectionTitle}>{statusTitle}</Text>
+            <Text style={styles.sectionDescription}>{statusSubtitle}</Text>
+
+            <View style={styles.badgesRow}>
+              <StatusBadge
+                icon={<Ionicons name="flash" size={14} color={palette.purple} />}
+                label="Импорт тренировок"
+              />
+              <StatusBadge
+                icon={<Ionicons name="walk" size={14} color={palette.purple} />}
+                label="Шаги и дистанция"
+              />
+              <StatusBadge
+                icon={<Ionicons name="flame" size={14} color={palette.purple} />}
+                label="Калории"
+              />
             </View>
 
-            {refreshing ? <ActivityIndicator color={palette.primary} /> : null}
+            <PrimaryButton
+              title={status === 'NEED_PERMS' ? 'Запросить доступ' : 'Проверить снова'}
+              onPress={async () => {
+                try {
+                  setScreenLoading(true);
+                  await refreshAll(period, 'initial');
+                } finally {
+                  setScreenLoading(false);
+                }
+              }}
+            />
+
+            <View style={{ height: 10 }} />
+
+            <SecondaryButton title="Открыть Health Connect" onPress={openSettingsSafe} />
+
+            <View style={styles.warnBox}>
+              <Text style={styles.warnText}>
+                После подключения Вы сможете импортировать данные из других совместимых приложений и часов через Health Connect.
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor={palette.bg} />
+
+      <LinearGradient colors={[palette.bg, palette.bg2]} style={StyleSheet.absoluteFill} />
+      <View style={styles.blobTopRight} pointerEvents="none" />
+      <View style={styles.blobLeft} pointerEvents="none" />
+      <View style={styles.blobBottom} pointerEvents="none" />
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => refreshAll(period, 'refresh')}
+            tintColor={palette.purple}
+          />
+        }
+      >
+        <LinearGradient
+          colors={[palette.purple, palette.purpleDark, '#7B61FF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroBlobTop} />
+          <View style={styles.heroBlobBottom} />
+
+          <Text style={styles.heroKicker}>SPORTTRACKER</Text>
+          <Text style={styles.heroTitle}>Health Connect</Text>
+          <Text style={styles.heroSubtitle}>
+            Импортируйте найденные сессии в дневник и управляйте источниками данных в одном месте.
+          </Text>
+
+          <View style={styles.heroPillsRow}>
+            <View style={styles.heroMiniPill}>
+              <Ionicons name="calendar-outline" size={14} color={palette.purple} />
+              <Text style={styles.heroMiniPillText}>{period === 'today' ? 'Сегодня' : '7 дней'}</Text>
+            </View>
+
+            <View style={styles.heroMiniPill}>
+              <Ionicons name="checkmark-circle" size={14} color={palette.purple} />
+              <Text style={styles.heroMiniPillText}>Подключено</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.statsRow}>
+          <StatCard
+            value={String(sessions.length)}
+            label="сессий"
+            tint="rgba(124,231,255,0.28)"
+            icon={<Ionicons name="time-outline" size={18} color={palette.purple} />}
+          />
+          <StatCard
+            value={previewDistanceKm.toFixed(2)}
+            label="км"
+            tint="rgba(255,179,107,0.28)"
+            icon={<Ionicons name="map-outline" size={18} color={palette.purple} />}
+          />
+          <StatCard
+            value={String(previewSteps)}
+            label="шагов"
+            tint="rgba(255,141,216,0.28)"
+            icon={<Ionicons name="walk-outline" size={18} color={palette.purple} />}
+          />
+        </View>
+
+        <View style={styles.mainCard}>
+          <Text style={styles.sectionKicker}>ИСТОЧНИКИ</Text>
+          <Text style={styles.sectionTitle}>Связанные приложения</Text>
+          <Text style={styles.sectionDescription}>
+            Через Health Connect можно объединять данные из других совместимых приложений, часов и фитнес-сервисов.
+          </Text>
+
+          <View style={styles.badgesRow}>
+            <StatusBadge
+              icon={<Ionicons name="watch-outline" size={14} color={palette.purple} />}
+              label="Часы"
+            />
+            <StatusBadge
+              icon={<Ionicons name="fitness-outline" size={14} color={palette.purple} />}
+              label="Фитнес-приложения"
+            />
+            <StatusBadge
+              icon={<Ionicons name="sync-outline" size={14} color={palette.purple} />}
+              label="Синхронизация"
+            />
           </View>
 
-          <View style={{ height: 10 }} />
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <Chip label="Сегодня" active={period === 'today'} onPress={() => setPeriod('today')} palette={palette} />
-            <Chip label="7 дней" active={period === '7d'} onPress={() => setPeriod('7d')} palette={palette} />
-          </View>
+          <SecondaryButton title="Открыть Health Connect" onPress={openSettingsSafe} />
 
-          <Text style={[styles.smallMeta, { color: palette.subtext, marginTop: 10 }]}>
+          <Text style={styles.metaText}>
             Последний импорт: {lastImportEnd ? formatLocal(lastImportEnd) : '—'}
           </Text>
         </View>
 
-        {/* Preview */}
-        <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Сводка</Text>
-          <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
-            По выбранному периоду (после последнего импорта)
+        <View style={styles.mainCard}>
+          <Text style={styles.sectionKicker}>ИМПОРТ</Text>
+          <Text style={styles.sectionTitle}>Новые сессии</Text>
+          <Text style={styles.sectionDescription}>
+            Импортируются только данные после последнего успешного импорта.
           </Text>
 
-          <View style={{ height: 12 }} />
-          <View style={styles.statsRow}>
-            <HeaderStat icon="time-outline" value={String(sessions.length)} label="сессий" palette={palette} />
-            <HeaderStat icon="map-outline" value={previewDistanceKm.toFixed(2)} label="км" palette={palette} />
-            <HeaderStat icon="walk-outline" value={String(previewSteps)} label="шагов" palette={palette} />
-            <HeaderStat icon="flame-outline" value={String(previewCalories)} label="ккал" palette={palette} />
+          <View style={styles.filtersRow}>
+            <FilterChip label="Сегодня" active={period === 'today'} onPress={() => setPeriod('today')} />
+            <FilterChip label="7 дней" active={period === '7d'} onPress={() => setPeriod('7d')} />
           </View>
 
           <View style={{ height: 12 }} />
 
-          <Pressable
+          <View style={styles.importSummaryBox}>
+            <Text style={styles.importSummaryText}>
+              Калории из Health Connect используются напрямую. Если они отсутствуют, приложение оценит их автоматически.
+            </Text>
+          </View>
+
+          <View style={{ height: 12 }} />
+
+          <PrimaryButton
+            title={importingLabel ? importingLabel : sessions.length ? 'Импортировать всё' : 'Нет новых сессий'}
             onPress={importAll}
             disabled={importing || sessions.length === 0}
-            style={({ pressed }) => [
-              styles.btnPrimary,
-              {
-                backgroundColor: palette.primary,
-                opacity: importing || sessions.length === 0 ? 0.65 : pressed ? 0.85 : 1,
-              },
-            ]}
-          >
-            <Text style={styles.btnPrimaryText}>
-              {importingLabel ? importingLabel : sessions.length ? 'Импортировать всё' : 'Нет новых сессий'}
-            </Text>
-          </Pressable>
-
-          <View style={{ height: 10 }} />
-
-          <View style={[styles.hint, { backgroundColor: palette.successBg, borderColor: palette.border }]}>
-            <Text style={[styles.hintText, { color: palette.successText }]}>
-              Если калорий нет в Health Connect — мы оценим их автоматически.
-            </Text>
-          </View>
+            loading={false}
+          />
         </View>
 
-        {/* Sessions list */}
-        <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Сессии</Text>
-          <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
-            Можно импортировать по одной
-          </Text>
-
-          <View style={{ height: 10 }} />
+        <View style={styles.mainCard}>
+          <Text style={styles.sectionKicker}>СПИСОК</Text>
+          <Text style={styles.sectionTitle}>Сессии для импорта</Text>
+          <Text style={styles.sectionDescription}>Можно импортировать каждую запись отдельно.</Text>
 
           {sessions.length === 0 ? (
-            <View style={[styles.empty, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
-              <Text style={{ color: palette.subtext, fontWeight: '800' }}>
-                Новых сессий пока нет.
-              </Text>
-              <Text style={{ color: palette.subtext, fontWeight: '800', marginTop: 6, lineHeight: 18 }}>
-                Попробуй: запусти тренировку на часах/в Google Fit → дождись синхронизации → открой этот экран снова.
+            <View style={styles.emptyBox}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="cloud-offline-outline" size={22} color={palette.purple} />
+              </View>
+              <Text style={styles.emptyTitle}>Новых сессий пока нет</Text>
+              <Text style={styles.emptySub}>
+                Попробуйте запустить тренировку на часах или в другом приложении, дождаться синхронизации и открыть экран ещё раз.
               </Text>
 
-              <View style={{ height: 10 }} />
-
-              <View style={[styles.warn, { backgroundColor: palette.warnBg, borderColor: palette.border }]}>
-                <Text style={[styles.warnText, { color: palette.warnText }]}>
-                  Важно: иногда Health Connect синхронизирует данные с задержкой 1–5 минут.
+              <View style={styles.warnBox}>
+                <Text style={styles.warnText}>
+                  Иногда синхронизация в Health Connect появляется с задержкой в несколько минут.
                 </Text>
               </View>
             </View>
           ) : (
-            sessions.map((s) => {
-              const code = mapExerciseToActivityCode(s.exerciseTypeText);
-              const title = titleFor(code);
+            <View style={styles.sessionsList}>
+              {sessions.map((s) => {
+                const code = mapExerciseToActivityCode(s.exerciseTypeText);
+                const title = titleFor(code);
 
-              return (
-                <View
-                  key={s.id}
-                  style={[styles.sessionCard, { backgroundColor: palette.inputBg, borderColor: palette.border }]}
-                >
-                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                    <View style={[styles.sessionIcon, { backgroundColor: palette.softPrimary }]}>
-                      <Ionicons name={iconFor(code)} size={18} color={palette.primary} />
+                return (
+                  <View key={s.id} style={styles.sessionCard}>
+                    <View style={styles.sessionRowTop}>
+                      <View style={styles.sessionIcon}>
+                        <Ionicons name={iconFor(code)} size={18} color={palette.purple} />
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sessionTitle} numberOfLines={1}>
+                          {title}
+                        </Text>
+                        <Text style={styles.sessionTime} numberOfLines={2}>
+                          {formatLocal(s.startTime)} → {formatLocal(s.endTime)}
+                        </Text>
+                      </View>
+
+                      <Pressable
+                        onPress={() => importSingle(s)}
+                        disabled={importing}
+                        style={({ pressed }) => [
+                          styles.smallActionBtn,
+                          { opacity: importing ? 0.65 : pressed ? 0.88 : 1 },
+                        ]}
+                      >
+                        <Text style={styles.smallActionBtnText}>Импорт</Text>
+                      </Pressable>
                     </View>
 
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: palette.text, fontWeight: '900' }} numberOfLines={1}>
-                        {title}
-                      </Text>
-                      <Text style={{ color: palette.subtext, fontWeight: '800', marginTop: 2 }} numberOfLines={2}>
-                        {formatLocal(s.startTime)} → {formatLocal(s.endTime)}
+                    <View style={styles.sessionTypePill}>
+                      <Text style={styles.sessionTypePillText}>
+                        Распознано: {s.exerciseTypeText ? s.exerciseTypeText : 'тип не указан'}
                       </Text>
                     </View>
-
-                    <Pressable
-                      onPress={() => importSingle(s)}
-                      disabled={importing}
-                      style={({ pressed }) => [
-                        styles.smallBtn,
-                        { backgroundColor: palette.primary, opacity: importing ? 0.65 : pressed ? 0.85 : 1 },
-                      ]}
-                    >
-                      <Text style={{ color: '#fff', fontWeight: '900' }}>Импорт</Text>
-                    </Pressable>
                   </View>
-
-                  {/* для пользователя полезно: показать “что распознали” */}
-                  <Text style={{ color: palette.subtext, fontWeight: '800', marginTop: 8 }} numberOfLines={2}>
-                    Распознано: {s.exerciseTypeText ? s.exerciseTypeText : 'тип не указан'}
-                  </Text>
-                </View>
-              );
-            })
+                );
+              })}
+            </View>
           )}
         </View>
-
-        <View style={{ height: 18 }} />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  content: { padding: 16, paddingTop: 18, paddingBottom: 24 },
+  screen: {
+    flex: 1,
+    backgroundColor: palette.bg,
+  },
 
-  pageTitle: { fontSize: 22, fontWeight: '900' },
-  pageSubtitle: { marginTop: 6, fontSize: 13, fontWeight: '700' },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
 
-  section: {
+  gateScrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+    minHeight: '100%',
+    justifyContent: 'center',
+  },
+
+  centerWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+
+  blobTopRight: {
+    position: 'absolute',
+    top: -20,
+    right: -10,
+    width: 140,
+    height: 100,
+    backgroundColor: 'rgba(109,76,255,0.14)',
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 22,
+    borderTopLeftRadius: 80,
+    borderTopRightRadius: 12,
+  },
+
+  blobLeft: {
+    position: 'absolute',
+    left: -28,
+    top: 240,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(184,168,255,0.16)',
+  },
+
+  blobBottom: {
+    position: 'absolute',
+    right: -20,
+    bottom: 150,
+    width: 120,
+    height: 76,
+    backgroundColor: 'rgba(124,231,255,0.16)',
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 26,
+    borderBottomLeftRadius: 60,
+    borderBottomRightRadius: 60,
+  },
+
+  heroCard: {
+    minHeight: 220,
+    borderRadius: 30,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 18,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: '#6D4CFF',
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+
+  heroBlobTop: {
+    position: 'absolute',
+    top: -20,
+    right: -12,
+    width: 120,
+    height: 84,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 26,
+    borderTopLeftRadius: 70,
+    borderTopRightRadius: 16,
+  },
+
+  heroBlobBottom: {
+    position: 'absolute',
+    bottom: -12,
+    left: -10,
+    width: 128,
+    height: 64,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 36,
+    borderBottomLeftRadius: 80,
+    borderBottomRightRadius: 38,
+  },
+
+  heroKicker: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+    marginBottom: 12,
+  },
+
+  heroTitle: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '900',
+    marginBottom: 10,
+    maxWidth: '86%',
+  },
+
+  heroSubtitle: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 14.5,
+    lineHeight: 21,
+    fontWeight: '600',
+    maxWidth: '92%',
+    marginBottom: 18,
+  },
+
+  heroCircle: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    shadowColor: '#2D244D',
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+
+  heroPillsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+
+  heroMiniPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  heroMiniPillText: {
+    color: palette.purple,
+    fontSize: 12.5,
+    fontWeight: '800',
+    marginLeft: 6,
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 16,
+  },
+
+  statCard: {
+    flex: 1,
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: palette.line,
+  },
+
+  statIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+
+  statValue: {
+    color: palette.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  statLabel: {
+    color: palette.subtext,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+
+  mainCard: {
+    backgroundColor: palette.card,
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    borderWidth: 1,
+    borderColor: palette.line,
+    marginBottom: 16,
+  },
+
+  sectionKicker: {
+    color: palette.purple,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    marginBottom: 8,
+  },
+
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 29,
+    lineHeight: 32,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+
+  sectionDescription: {
+    color: palette.subtext,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+
+  badgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+
+  infoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.cardSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  infoBadgeText: {
+    color: palette.purple,
+    fontSize: 12.5,
+    fontWeight: '800',
+    marginLeft: 6,
+  },
+
+  filterChip: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexGrow: 1,
+  },
+
+  filterChipActive: {
+    backgroundColor: palette.purple,
+  },
+
+  filterChipInactive: {
+    backgroundColor: palette.cardSoft,
+  },
+
+  filterChipText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+
+  filtersRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+
+  primaryButton: {
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+
+  primaryButtonGradient: {
+    minHeight: 58,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15.5,
+    fontWeight: '900',
+  },
+
+  secondaryButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: palette.cardSoft,
+    borderWidth: 1,
+    borderColor: palette.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+
+  secondaryButtonText: {
+    color: palette.purple,
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  metaText: {
+    color: palette.subtext,
+    marginTop: 12,
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+
+  importSummaryBox: {
     borderRadius: 18,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 14,
-    ...(Platform.OS === 'ios'
-      ? { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
-      : { elevation: 1 }),
-  },
-  sectionTitle: { fontSize: 15.5, fontWeight: '900' },
-  sectionSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: '700' },
-
-  card: { borderRadius: 18, borderWidth: 1, padding: 14 },
-  title: { fontSize: 18, fontWeight: '900' },
-  sub: { marginTop: 6, fontSize: 13, fontWeight: '800', lineHeight: 18 },
-
-  btn: { borderRadius: 14, borderWidth: 1, paddingVertical: 12, alignItems: 'center' },
-  btnText: { fontSize: 14, fontWeight: '900' },
-
-  btnPrimary: { borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
-  btnPrimaryText: { color: '#fff', fontSize: 14, fontWeight: '900' },
-
-  chip: { flex: 1, borderRadius: 999, borderWidth: 1, paddingVertical: 10, alignItems: 'center' },
-
-  smallMeta: { fontSize: 12, fontWeight: '800', opacity: 0.9 },
-
-  statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  statCard: {
-    width: '48%',
-    borderWidth: 1,
-    borderRadius: 16,
+    borderColor: palette.line,
+    backgroundColor: palette.cardSoft,
     padding: 12,
-    minHeight: 98,
-    justifyContent: 'center',
-    gap: 6,
   },
-  statValue: { fontSize: 18, fontWeight: '900' },
-  statLabel: { fontSize: 12, fontWeight: '800' },
 
-  hint: { borderWidth: 1, borderRadius: 16, padding: 12 },
-  hintText: { fontSize: 12.5, fontWeight: '800', lineHeight: 18 },
+  importSummaryText: {
+    color: palette.subtext,
+    fontSize: 12.5,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
 
-  warn: { borderWidth: 1, borderRadius: 14, padding: 10 },
-  warnText: { fontSize: 12.5, fontWeight: '900', lineHeight: 18 },
+  sessionsList: {
+    gap: 12,
+  },
 
-  empty: { borderWidth: 1, borderRadius: 16, padding: 12 },
+  sessionCard: {
+    borderWidth: 1,
+    borderColor: palette.line,
+    borderRadius: 20,
+    padding: 12,
+    backgroundColor: palette.cardSoft,
+  },
 
-  sessionCard: { borderWidth: 1, borderRadius: 16, padding: 12, marginTop: 10 },
-  sessionIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  smallBtn: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  sessionRowTop: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
+
+  sessionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  sessionTitle: {
+    color: palette.text,
+    fontWeight: '900',
+    fontSize: 14.5,
+  },
+
+  sessionTime: {
+    color: palette.subtext,
+    fontWeight: '800',
+    marginTop: 2,
+    lineHeight: 18,
+  },
+
+  smallActionBtn: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: palette.purple,
+  },
+
+  smallActionBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+
+  sessionTypePill: {
+    marginTop: 10,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: palette.line,
+    maxWidth: '100%',
+  },
+
+  sessionTypePillText: {
+    color: palette.subtext,
+    fontWeight: '800',
+    fontSize: 12,
+  },
+
+  emptyBox: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.line,
+    padding: 16,
+    alignItems: 'center',
+    backgroundColor: palette.cardSoft,
+  },
+
+  emptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+
+  emptyTitle: {
+    color: palette.text,
+    fontSize: 14.5,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  emptySub: {
+    color: palette.subtext,
+    marginTop: 6,
+    fontSize: 12.5,
+    fontWeight: '700',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+
+  warnBox: {
+    marginTop: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.warnBg,
+    padding: 12,
+  },
+
+  warnText: {
+    color: palette.warnText,
+    fontSize: 12.5,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
 });

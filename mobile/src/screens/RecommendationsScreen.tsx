@@ -1,4 +1,3 @@
-// mobile/src/screens/RecommendationsScreen.tsx
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
@@ -6,31 +5,42 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 
-import { dismissRecommendation, getRecommendations, RecommendationItem } from '../api/recommendationsApi';
+import {
+  dismissRecommendation,
+  getRecommendations,
+  RecommendationItem,
+} from '../api/recommendationsApi';
 
-function makePalette(isDark: boolean) {
-  return {
-    bg: isDark ? '#0B0D12' : '#F4F6FA',
-    card: isDark ? '#121625' : '#FFFFFF',
-    text: isDark ? '#E9ECF5' : '#121722',
-    subtext: isDark ? '#A9B1C7' : '#5C667A',
-    border: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.10)',
-    primary: '#2D6BFF',
-    danger: '#E5484D',
-    inputBg: isDark ? 'rgba(255,255,255,0.06)' : '#F2F4F7',
-    softPrimary: isDark ? 'rgba(45,107,255,0.16)' : 'rgba(45,107,255,0.10)',
-    softDanger: isDark ? 'rgba(229,72,77,0.18)' : 'rgba(229,72,77,0.10)',
-  };
-}
+const palette = {
+  bg: '#F5F2FF',
+  bg2: '#EEE9FF',
+  card: '#FFFFFF',
+  cardSoft: '#F4F0FF',
+
+  purple: '#6D4CFF',
+  purpleDark: '#5137D7',
+
+  text: '#2D244D',
+  subtext: '#7D739D',
+  muted: '#9D95BA',
+  line: '#E6E0FA',
+
+  cyan: '#7CE7FF',
+  pink: '#FF8DD8',
+  orange: '#FFB36B',
+  danger: '#E5484D',
+  dangerSoft: 'rgba(229,72,77,0.10)',
+};
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -39,42 +49,127 @@ function formatTime(iso: string) {
 }
 
 function isDismissed(it: any): boolean {
-  // поддержим разные варианты бэка (на будущее)
   return Boolean(it?.dismissedAt) || Boolean(it?.isDismissed) || Boolean(it?.dismissed);
 }
 
-function SegButton({
+function FilterChip({
   label,
   active,
   onPress,
-  palette,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
-  palette: ReturnType<typeof makePalette>;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.segBtn,
-        {
-          borderColor: active ? palette.primary : palette.border,
-          backgroundColor: active ? 'rgba(45,107,255,0.14)' : palette.inputBg,
-          opacity: pressed ? 0.86 : 1,
-        },
-      ]}
-    >
-      <Text style={[styles.segText, { color: active ? palette.primary : palette.text }]}>{label}</Text>
+    <Pressable onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}>
+      <View
+        style={[
+          styles.filterChip,
+          active ? styles.filterChipActive : styles.filterChipInactive,
+        ]}
+      >
+        <Text
+          style={[
+            styles.filterChipText,
+            { color: active ? '#FFFFFF' : palette.purple },
+          ]}
+        >
+          {label}
+        </Text>
+      </View>
     </Pressable>
   );
 }
 
-export default function RecommendationsScreen() {
-  const scheme = useColorScheme();
-  const palette = useMemo(() => makePalette(scheme === 'dark'), [scheme]);
+function InfoBadge({
+  icon,
+  label,
+}: {
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <View style={styles.infoBadge}>
+      {icon}
+      <Text style={styles.infoBadgeText}>{label}</Text>
+    </View>
+  );
+}
 
+function SummaryStat({
+  value,
+  label,
+  tint,
+  icon,
+}: {
+  value: string;
+  label: string;
+  tint: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <View style={styles.summaryStat}>
+      <View style={[styles.summaryStatIcon, { backgroundColor: tint }]}>{icon}</View>
+      <Text style={styles.summaryStatValue}>{value}</Text>
+      <Text style={styles.summaryStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function RecommendationCard({
+  item,
+  hidden,
+  onDismiss,
+}: {
+  item: any;
+  hidden: boolean;
+  onDismiss: () => void;
+}) {
+  return (
+    <View style={styles.tipCard}>
+      <View style={styles.tipHeader}>
+        <View style={styles.tipIcon}>
+          <Ionicons
+            name={hidden ? 'eye-off-outline' : 'sparkles-outline'}
+            size={18}
+            color={hidden ? palette.danger : palette.purple}
+          />
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.tipTitle} numberOfLines={2}>
+            {item?.template?.title ?? 'Совет'}
+          </Text>
+          <Text style={styles.tipMeta} numberOfLines={1}>
+            {formatTime(item.createdAt)}
+          </Text>
+        </View>
+
+        {hidden ? (
+          <View style={styles.hiddenBadge}>
+            <Text style={styles.hiddenBadgeText}>Скрыто</Text>
+          </View>
+        ) : (
+          <Pressable onPress={onDismiss} style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1, padding: 4 }]}>
+            <Ionicons name="close-circle-outline" size={22} color={palette.danger} />
+          </Pressable>
+        )}
+      </View>
+
+      <Text style={styles.tipText}>{item.text}</Text>
+
+      {item.reason ? (
+        <View style={styles.reasonBox}>
+          <Text style={styles.reasonLabel}>Почему этот совет</Text>
+          <Text style={styles.reasonText}>{item.reason}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export default function RecommendationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -97,9 +192,8 @@ export default function RecommendationsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // авто-обновление при входе/возврате на экран
       load().catch(() => {});
-    }, [load]),
+    }, [load])
   );
 
   const onRefresh = useCallback(async () => {
@@ -130,145 +224,179 @@ export default function RecommendationsScreen() {
 
   const onDismiss = useCallback(
     async (id: string) => {
-      // optimistic UI: сразу убираем из active
       const prev = items;
       setItems((p) => p.filter((x) => x.id !== id));
 
       try {
         await dismissRecommendation(id);
       } catch (e: any) {
-        // откат
         setItems(prev);
-        Alert.alert('Ошибка', e?.message ?? 'Не удалось скрыть');
+        Alert.alert('Ошибка', e?.message ?? 'Не удалось скрыть совет');
       }
     },
-    [items],
+    [items]
   );
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.bg }]}>
+    <View style={styles.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor={palette.bg} />
+      <LinearGradient colors={[palette.bg, palette.bg2]} style={StyleSheet.absoluteFill} />
+
+      <View style={styles.blobTopRight} pointerEvents="none" />
+      <View style={styles.blobLeft} pointerEvents="none" />
+      <View style={styles.blobBottom} pointerEvents="none" />
+
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingTop: 18, paddingBottom: 24 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.purple} />}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <View style={{ marginBottom: 12 }}>
-          <Text style={[styles.pageTitle, { color: palette.text }]}>Советы</Text>
-          <Text style={[styles.pageSubtitle, { color: palette.subtext }]}>
-            Персональные рекомендации на основе твоих тренировок
+        <LinearGradient
+          colors={[palette.purple, palette.purpleDark, '#7B61FF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroBlobTop} />
+          <View style={styles.heroBlobBottom} />
+
+          <Text style={styles.heroKicker}>SPORTTRACKER</Text>
+          <Text style={styles.heroTitle}>Советы</Text>
+          <Text style={styles.heroSubtitle}>
+            Персональные рекомендации на основе Ваших тренировок, активности и текущего прогресса.
           </Text>
+
+          <View style={styles.heroMiniRow}>
+            <View style={styles.heroMiniPill}>
+              <Ionicons name="sparkles-outline" size={14} color={palette.purple} />
+              <Text style={styles.heroMiniPillText}>{activeItems.length} активных</Text>
+            </View>
+
+            <View style={styles.heroMiniPill}>
+              <Ionicons name="eye-off-outline" size={14} color={palette.purple} />
+              <Text style={styles.heroMiniPillText}>{hiddenItems.length} скрытых</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.statsRow}>
+          <SummaryStat
+            value={String(activeItems.length)}
+            label="активных"
+            tint="rgba(124,231,255,0.28)"
+            icon={<Ionicons name="flash-outline" size={18} color={palette.purple} />}
+          />
+          <SummaryStat
+            value={String(hiddenItems.length)}
+            label="скрытых"
+            tint="rgba(255,141,216,0.28)"
+            icon={<Ionicons name="eye-off-outline" size={18} color={palette.purple} />}
+          />
+          <SummaryStat
+            value={String(filtered.length)}
+            label="показано"
+            tint="rgba(255,179,107,0.28)"
+            icon={<Ionicons name="list-outline" size={18} color={palette.purple} />}
+          />
         </View>
 
-        {/* Controls */}
-        <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <View style={[styles.searchRow, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
+        <View style={styles.mainCard}>
+          <Text style={styles.sectionKicker}>ФИЛЬТРЫ</Text>
+          <Text style={styles.sectionTitle}>Поиск и категории</Text>
+          <Text style={styles.sectionDescription}>
+            Ищите советы по тексту и переключайтесь между активными и скрытыми рекомендациями.
+          </Text>
+
+          <View style={styles.badgesRow}>
+            <InfoBadge
+              icon={<Ionicons name="search-outline" size={14} color={palette.purple} />}
+              label="Поиск"
+            />
+            <InfoBadge
+              icon={<Ionicons name="sparkles-outline" size={14} color={palette.purple} />}
+              label="Рекомендации"
+            />
+            <InfoBadge
+              icon={<Ionicons name="eye-off-outline" size={14} color={palette.purple} />}
+              label="Скрытие"
+            />
+          </View>
+
+          <View style={styles.searchRow}>
             <Ionicons name="search-outline" size={18} color={palette.subtext} />
             <TextInput
               value={query}
               onChangeText={setQuery}
               placeholder="Поиск по советам…"
               placeholderTextColor={palette.subtext}
-              style={[styles.searchInput, { color: palette.text }]}
+              style={styles.searchInput}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
             />
             {query ? (
-              <Pressable
-                onPress={() => setQuery('')}
-                style={({ pressed }) => [{ padding: 6, opacity: pressed ? 0.75 : 1 }]}
-              >
+              <Pressable onPress={() => setQuery('')} style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1, padding: 4 }]}>
                 <Ionicons name="close-circle" size={18} color={palette.subtext} />
               </Pressable>
             ) : null}
           </View>
 
-          <View style={styles.segRow}>
-            <SegButton
+          <View style={styles.filtersRow}>
+            <FilterChip
               label={`Активные (${activeItems.length})`}
               active={tab === 'active'}
               onPress={() => setTab('active')}
-              palette={palette}
             />
-            <SegButton
+            <FilterChip
               label={`Скрытые (${hiddenItems.length})`}
               active={tab === 'hidden'}
               onPress={() => setTab('hidden')}
-              palette={palette}
             />
           </View>
 
-          <View style={{ marginTop: 10 }}>
-            <Text style={[styles.smallMeta, { color: palette.subtext }]}>
-              {tab === 'active'
-                ? 'Можно скрывать советы — они перестанут появляться.'
-                : 'Скрытые советы показаны для истории (если бэк их отдаёт).'}
-            </Text>
-          </View>
+          <Text style={styles.smallMeta}>
+            {tab === 'active'
+              ? 'Активные советы можно скрывать — они перестанут показываться в списке.'
+              : 'Скрытые советы оставлены для истории, если сервер продолжает их возвращать.'}
+          </Text>
         </View>
 
-        {/* List */}
-        <View style={{ gap: 10 }}>
+        <View style={styles.listWrap}>
           {loading ? (
             <>
-              <View style={[styles.skeleton, { backgroundColor: palette.card, borderColor: palette.border }]} />
-              <View style={[styles.skeleton, { backgroundColor: palette.card, borderColor: palette.border }]} />
-              <View style={[styles.skeleton, { backgroundColor: palette.card, borderColor: palette.border }]} />
+              <View style={styles.skeleton} />
+              <View style={styles.skeleton} />
+              <View style={styles.skeleton} />
             </>
           ) : filtered.length === 0 ? (
-            <View style={[styles.empty, { backgroundColor: palette.card, borderColor: palette.border }]}>
-              <View style={[styles.emptyIcon, { backgroundColor: palette.softPrimary }]}>
-                <Ionicons name="sparkles-outline" size={20} color={palette.primary} />
+            <View style={styles.emptyBox}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="sparkles-outline" size={20} color={palette.purple} />
               </View>
-              <Text style={[styles.emptyTitle, { color: palette.text }]}>
-                {query ? 'Ничего не найдено' : tab === 'active' ? 'Пока нет активных советов' : 'Пока нет скрытых советов'}
-              </Text>
-              <Text style={[styles.emptyText, { color: palette.subtext }]}>
+
+              <Text style={styles.emptyTitle}>
                 {query
-                  ? 'Попробуй изменить запрос.'
-                  : 'Добавляй тренировки — система будет подбирать рекомендации.'}
+                  ? 'Ничего не найдено'
+                  : tab === 'active'
+                  ? 'Пока нет активных советов'
+                  : 'Пока нет скрытых советов'}
+              </Text>
+
+              <Text style={styles.emptyText}>
+                {query
+                  ? 'Попробуйте изменить поисковый запрос.'
+                  : 'Добавляйте тренировки — система будет подбирать рекомендации автоматически.'}
               </Text>
             </View>
           ) : (
             filtered.map((it: any) => (
-              <View key={it.id} style={[styles.tip, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={[styles.icon, { backgroundColor: palette.softPrimary }]}>
-                    <Ionicons name="sparkles-outline" size={18} color={palette.primary} />
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.tipTitle, { color: palette.text }]} numberOfLines={2}>
-                      {it?.template?.title ?? 'Совет'}
-                    </Text>
-                    <Text style={[styles.tipMeta, { color: palette.subtext }]} numberOfLines={1}>
-                      {formatTime(it.createdAt)}
-                    </Text>
-                  </View>
-
-                  {tab === 'active' ? (
-                    <Pressable
-                      onPress={() => onDismiss(it.id)}
-                      style={({ pressed }) => [{ padding: 6, opacity: pressed ? 0.75 : 1 }]}
-                    >
-                      <Ionicons name="close-circle-outline" size={22} color={palette.danger} />
-                    </Pressable>
-                  ) : (
-                    <View style={[styles.hiddenBadge, { backgroundColor: palette.softDanger, borderColor: palette.border }]}>
-                      <Text style={[styles.hiddenBadgeText, { color: palette.danger }]}>Скрыто</Text>
-                    </View>
-                  )}
-                </View>
-
-                <Text style={[styles.tipText, { color: palette.text }]}>{it.text}</Text>
-
-                {it.reason ? (
-                  <View style={[styles.reasonBox, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
-                    <Text style={[styles.reasonLabel, { color: palette.subtext }]}>Почему этот совет</Text>
-                    <Text style={[styles.reasonText, { color: palette.text }]}>{it.reason}</Text>
-                  </View>
-                ) : null}
-              </View>
+              <RecommendationCard
+                key={it.id}
+                item={it}
+                hidden={tab === 'hidden'}
+                onDismiss={() => onDismiss(it.id)}
+              />
             ))
           )}
         </View>
@@ -280,73 +408,429 @@ export default function RecommendationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
+  screen: {
+    flex: 1,
+    backgroundColor: palette.bg,
+  },
 
-  pageTitle: { fontSize: 22, fontWeight: '900' },
-  pageSubtitle: { marginTop: 6, fontSize: 13, fontWeight: '700' },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
 
-  section: {
-    borderRadius: 18,
+  blobTopRight: {
+    position: 'absolute',
+    top: -20,
+    right: -10,
+    width: 140,
+    height: 100,
+    backgroundColor: 'rgba(109,76,255,0.14)',
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 22,
+    borderTopLeftRadius: 80,
+    borderTopRightRadius: 12,
+  },
+
+  blobLeft: {
+    position: 'absolute',
+    left: -28,
+    top: 240,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(184,168,255,0.16)',
+  },
+
+  blobBottom: {
+    position: 'absolute',
+    right: -20,
+    bottom: 150,
+    width: 120,
+    height: 76,
+    backgroundColor: 'rgba(124,231,255,0.16)',
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 26,
+    borderBottomLeftRadius: 60,
+    borderBottomRightRadius: 60,
+  },
+
+  heroCard: {
+    minHeight: 220,
+    borderRadius: 30,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 18,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: '#6D4CFF',
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+
+  heroBlobTop: {
+    position: 'absolute',
+    top: -20,
+    right: -12,
+    width: 120,
+    height: 84,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 26,
+    borderTopLeftRadius: 70,
+    borderTopRightRadius: 16,
+  },
+
+  heroBlobBottom: {
+    position: 'absolute',
+    bottom: -12,
+    left: -10,
+    width: 128,
+    height: 64,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 36,
+    borderBottomLeftRadius: 80,
+    borderBottomRightRadius: 38,
+  },
+
+  heroKicker: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+    marginBottom: 12,
+  },
+
+  heroTitle: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '900',
+    marginBottom: 10,
+    maxWidth: '86%',
+  },
+
+  heroSubtitle: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 14.5,
+    lineHeight: 21,
+    fontWeight: '600',
+    maxWidth: '92%',
+    marginBottom: 18,
+  },
+
+  heroMiniRow: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+
+  heroMiniPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  heroMiniPillText: {
+    color: palette.purple,
+    fontSize: 12.5,
+    fontWeight: '800',
+    marginLeft: 6,
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 16,
+  },
+
+  summaryStat: {
+    flex: 1,
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 14,
-    ...(Platform.OS === 'ios'
-      ? { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
-      : { elevation: 1 }),
+    borderColor: palette.line,
+  },
+
+  summaryStatIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+
+  summaryStatValue: {
+    color: palette.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  summaryStatLabel: {
+    color: palette.subtext,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+    textAlign: 'center',
+  },
+
+  mainCard: {
+    backgroundColor: palette.card,
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    borderWidth: 1,
+    borderColor: palette.line,
+    marginBottom: 16,
+  },
+
+  sectionKicker: {
+    color: palette.purple,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    marginBottom: 8,
+  },
+
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 29,
+    lineHeight: 32,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+
+  sectionDescription: {
+    color: palette.subtext,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+
+  badgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+
+  infoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.cardSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  infoBadgeText: {
+    color: palette.purple,
+    fontSize: 12.5,
+    fontWeight: '800',
+    marginLeft: 6,
   },
 
   searchRow: {
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.cardSoft,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'ios' ? 12 : 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  searchInput: { flex: 1, fontSize: 14.5, fontWeight: '800' },
 
-  segRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  segBtn: { flex: 1, borderWidth: 1, borderRadius: 999, paddingVertical: 10, alignItems: 'center' },
-  segText: { fontSize: 12.8, fontWeight: '900' },
+  searchInput: {
+    flex: 1,
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: palette.text,
+  },
 
-  smallMeta: { fontSize: 12, fontWeight: '800', opacity: 0.9 },
+  filtersRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
 
-  tip: {
-    borderRadius: 18,
+  filterChip: {
+    flex: 1,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+
+  filterChipActive: {
+    backgroundColor: palette.purple,
+  },
+
+  filterChipInactive: {
+    backgroundColor: palette.cardSoft,
+  },
+
+  filterChipText: {
+    fontSize: 12.8,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  smallMeta: {
+    color: palette.subtext,
+    fontSize: 12,
+    fontWeight: '800',
+    opacity: 0.9,
+    marginTop: 12,
+    lineHeight: 18,
+  },
+
+  listWrap: {
+    gap: 12,
+  },
+
+  tipCard: {
+    borderRadius: 24,
     borderWidth: 1,
-    padding: 12,
+    borderColor: palette.line,
+    padding: 14,
+    backgroundColor: palette.card,
     ...(Platform.OS === 'ios'
-      ? { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 8 } }
+      ? {
+          shadowColor: '#000',
+          shadowOpacity: 0.04,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 8 },
+        }
       : { elevation: 1 }),
   },
 
-  icon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  tipTitle: { fontSize: 14.8, fontWeight: '900' },
-  tipMeta: { marginTop: 2, fontSize: 11.5, fontWeight: '800' },
-  tipText: { marginTop: 10, fontSize: 13.5, fontWeight: '800', lineHeight: 18 },
+  tipHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
 
-  reasonBox: { marginTop: 10, borderRadius: 16, borderWidth: 1, padding: 10 },
-  reasonLabel: { fontSize: 11.5, fontWeight: '900' },
-  reasonText: { marginTop: 4, fontSize: 12.8, fontWeight: '800', lineHeight: 18 },
+  tipIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.cardSoft,
+  },
 
-  empty: {
+  tipTitle: {
+    color: palette.text,
+    fontSize: 14.8,
+    fontWeight: '900',
+  },
+
+  tipMeta: {
+    color: palette.subtext,
+    marginTop: 2,
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+
+  tipText: {
+    color: palette.text,
+    marginTop: 10,
+    fontSize: 13.5,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+
+  reasonBox: {
+    marginTop: 10,
     borderRadius: 18,
     borderWidth: 1,
-    padding: 14,
-    alignItems: 'center',
+    borderColor: palette.line,
+    padding: 10,
+    backgroundColor: palette.cardSoft,
   },
-  emptyIcon: { width: 44, height: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  emptyTitle: { marginTop: 10, fontSize: 14.8, fontWeight: '900', textAlign: 'center' },
-  emptyText: { marginTop: 6, fontSize: 12.8, fontWeight: '800', textAlign: 'center', lineHeight: 18 },
 
-  skeleton: { height: 110, borderRadius: 18, borderWidth: 1 },
+  reasonLabel: {
+    color: palette.subtext,
+    fontSize: 11.5,
+    fontWeight: '900',
+  },
+
+  reasonText: {
+    color: palette.text,
+    marginTop: 4,
+    fontSize: 12.8,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+
+  emptyBox: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: palette.line,
+    padding: 18,
+    alignItems: 'center',
+    backgroundColor: palette.card,
+  },
+
+  emptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.cardSoft,
+  },
+
+  emptyTitle: {
+    color: palette.text,
+    marginTop: 10,
+    fontSize: 14.8,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  emptyText: {
+    color: palette.subtext,
+    marginTop: 6,
+    fontSize: 12.8,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  skeleton: {
+    height: 118,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.card,
+  },
 
   hiddenBadge: {
     borderRadius: 999,
     borderWidth: 1,
+    borderColor: palette.line,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    backgroundColor: palette.dangerSoft,
   },
-  hiddenBadgeText: { fontSize: 12, fontWeight: '900' },
+
+  hiddenBadgeText: {
+    color: palette.danger,
+    fontSize: 12,
+    fontWeight: '900',
+  },
 });

@@ -11,12 +11,14 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 
 import { api } from "../api/client";
@@ -49,21 +51,28 @@ type ActivityType = {
   fieldsSchema?: { fields?: Field[] } | null;
 };
 
-function makePalette(isDark: boolean) {
-  return {
-    bg: isDark ? "#0B0D12" : "#F4F6FA",
-    card: isDark ? "#121625" : "#FFFFFF",
-    text: isDark ? "#E9ECF5" : "#121722",
-    subtext: isDark ? "#A9B1C7" : "#5C667A",
-    border: isDark ? "rgba(255,255,255,0.10)" : "rgba(16,24,40,0.10)",
-    primary: "#2D6BFF",
-    danger: "#E5484D",
-    success: "#1F7A2E",
-    inputBg: isDark ? "rgba(255,255,255,0.06)" : "#F2F4F7",
-    softPrimary: isDark ? "rgba(45,107,255,0.16)" : "rgba(45,107,255,0.10)",
-    softSuccess: isDark ? "rgba(31,122,46,0.18)" : "rgba(31,122,46,0.10)",
-  };
-}
+const palette = {
+  bg: "#F5F2FF",
+  bg2: "#EEE9FF",
+  card: "#FFFFFF",
+  cardSoft: "#F4F0FF",
+
+  purple: "#6D4CFF",
+  purpleDark: "#5137D7",
+
+  text: "#2D244D",
+  subtext: "#7D739D",
+  muted: "#9D95BA",
+  line: "#E6E0FA",
+
+  cyan: "#7CE7FF",
+  pink: "#FF8DD8",
+  orange: "#FFB36B",
+  green: "#24A865",
+  greenSoft: "rgba(36,168,101,0.10)",
+  danger: "#E5484D",
+  dangerSoft: "rgba(229,72,77,0.10)",
+};
 
 function clampNumStr(value: string) {
   return value.replace(/[^\d.,-]/g, "").replace(",", ".");
@@ -93,6 +102,144 @@ function minToSec(minStr: string) {
   const m = Number(minStr);
   if (!Number.isFinite(m) || m < 0) return undefined;
   return Math.round(m * 60);
+}
+
+function InfoBadge({
+  icon,
+  label,
+}: {
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <View style={styles.infoBadge}>
+      {icon}
+      <Text style={styles.infoBadgeText}>{label}</Text>
+    </View>
+  );
+}
+
+function SummaryStat({
+  value,
+  label,
+  tint,
+  icon,
+}: {
+  value: string;
+  label: string;
+  tint: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <View style={styles.summaryStat}>
+      <View style={[styles.summaryStatIcon, { backgroundColor: tint }]}>{icon}</View>
+      <Text style={styles.summaryStatValue}>{value}</Text>
+      <Text style={styles.summaryStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function PrimaryButton({
+  title,
+  subtitle,
+  onPress,
+  loading,
+  disabled,
+}: {
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        styles.primaryButtonWrap,
+        { opacity: disabled || loading ? 0.58 : pressed ? 0.9 : 1 },
+      ]}
+    >
+      <LinearGradient
+        colors={[palette.purple, palette.purpleDark]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.primaryButton}
+      >
+        <View style={styles.primaryButtonIcon}>
+          {loading ? (
+            <ActivityIndicator color={palette.purpleDark} />
+          ) : (
+            <Ionicons name="save-outline" size={18} color={palette.purpleDark} />
+          )}
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.primaryButtonTitle}>{title}</Text>
+          {subtitle ? <Text style={styles.primaryButtonSub}>{subtitle}</Text> : null}
+        </View>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+function DangerButton({
+  title,
+  onPress,
+  loading,
+}: {
+  title: string;
+  onPress: () => void;
+  loading?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={loading}
+      style={({ pressed }) => [
+        styles.dangerButton,
+        { opacity: loading ? 0.58 : pressed ? 0.9 : 1 },
+      ]}
+    >
+      <MaterialCommunityIcons name="trash-can-outline" size={18} color={palette.danger} />
+      <Text style={styles.dangerButtonText}>{title}</Text>
+      {loading ? <ActivityIndicator color={palette.danger} /> : null}
+    </Pressable>
+  );
+}
+
+function NumberField({
+  label,
+  unit,
+  value,
+  onChange,
+  required,
+}: {
+  label: string;
+  unit?: string;
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <Text style={styles.label}>
+        {label}
+        {unit ? ` (${unit})` : ""}
+        {required ? <Text style={{ color: palette.danger }}> *</Text> : null}
+      </Text>
+
+      <TextInput
+        value={value}
+        onChangeText={(v) => onChange(clampNumStr(v))}
+        keyboardType="numeric"
+        placeholder=""
+        placeholderTextColor={palette.subtext}
+        style={styles.input}
+      />
+    </View>
+  );
 }
 
 /** Конфетти без библиотек */
@@ -196,119 +343,8 @@ function ConfettiBurst({ show }: { show: boolean }) {
   );
 }
 
-function PrimaryButton({
-  title,
-  subtitle,
-  onPress,
-  palette,
-  loading,
-  disabled,
-}: {
-  title: string;
-  subtitle?: string;
-  onPress: () => void;
-  palette: ReturnType<typeof makePalette>;
-  loading?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled || loading}
-      style={({ pressed }) => [
-        styles.primaryBtn,
-        {
-          backgroundColor: palette.primary,
-          opacity: disabled || loading ? 0.55 : pressed ? 0.86 : 1,
-        },
-      ]}
-    >
-      <View style={{ flex: 1 }}>
-        <Text style={styles.primaryBtnTitle}>{title}</Text>
-        {subtitle ? <Text style={styles.primaryBtnSub}>{subtitle}</Text> : null}
-      </View>
-      {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.chevWhite}>›</Text>}
-    </Pressable>
-  );
-}
-
-function DangerButton({
-  title,
-  onPress,
-  palette,
-  loading,
-}: {
-  title: string;
-  onPress: () => void;
-  palette: ReturnType<typeof makePalette>;
-  loading?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={loading}
-      style={({ pressed }) => [
-        styles.dangerBtn,
-        {
-          borderColor: "rgba(229,72,77,0.35)",
-          backgroundColor: "rgba(229,72,77,0.12)",
-          opacity: loading ? 0.55 : pressed ? 0.86 : 1,
-        },
-      ]}
-    >
-      <Text style={[styles.dangerBtnText, { color: palette.danger }]}>{title}</Text>
-      {loading ? <ActivityIndicator color={palette.danger} /> : null}
-    </Pressable>
-  );
-}
-
-function NumberField({
-  label,
-  unit,
-  value,
-  onChange,
-  palette,
-  required,
-}: {
-  label: string;
-  unit?: string;
-  value: string;
-  onChange: (v: string) => void;
-  palette: ReturnType<typeof makePalette>;
-  required?: boolean;
-}) {
-  return (
-    <View style={{ marginBottom: 12 }}>
-      <Text style={[styles.label, { color: palette.subtext }]}>
-        {label}
-        {unit ? ` (${unit})` : ""}
-        {required ? <Text style={{ color: palette.danger }}> *</Text> : null}
-      </Text>
-
-      <TextInput
-        value={value}
-        onChangeText={(v) => onChange(clampNumStr(v))}
-        keyboardType="numeric"
-        placeholder=""
-        placeholderTextColor={palette.subtext}
-        style={[
-          styles.input,
-          {
-            backgroundColor: palette.inputBg,
-            borderColor: palette.border,
-            color: palette.text,
-          },
-        ]}
-      />
-    </View>
-  );
-}
-
 export default function EditWorkoutScreen({ route, navigation }: any) {
   const { workoutId } = route.params as { workoutId: string };
-
-  const scheme = useColorScheme();
-  const palette = useMemo(() => makePalette(scheme === "dark"), [scheme]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -319,7 +355,7 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
   const [activity, setActivity] = useState<ActivityType | null>(null);
 
   const [startedAtIso, setStartedAtIso] = useState<string>(isoNow());
-  const [durationMin, setDurationMin] = useState<string>(""); // UX: минуты
+  const [durationMin, setDurationMin] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
   const [values, setValues] = useState<Record<string, string>>({});
@@ -330,41 +366,46 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
   const [grantedTitles, setGrantedTitles] = useState<string[]>([]);
   const [confettiOn, setConfettiOn] = useState(false);
 
-  const load = useCallback(async (mode: "initial" | "refresh" = "initial") => {
-    if (mode === "initial") setLoading(true);
-    if (mode === "refresh") setRefreshing(true);
+  const load = useCallback(
+    async (mode: "initial" | "refresh" = "initial") => {
+      if (mode === "initial") setLoading(true);
+      if (mode === "refresh") setRefreshing(true);
 
-    try {
-      const [wRes, aRes] = await Promise.all([api.get(`/workouts/${workoutId}`), api.get("/activities")]);
+      try {
+        const [wRes, aRes] = await Promise.all([
+          api.get(`/workouts/${workoutId}`),
+          api.get("/activities"),
+        ]);
 
-      const w = wRes?.data?.workout;
-      const list: ActivityType[] = aRes?.data?.items ?? [];
+        const w = wRes?.data?.workout;
+        const list: ActivityType[] = aRes?.data?.items ?? [];
 
-      if (!w) throw new Error("Тренировка не найдена");
+        if (!w) throw new Error("Тренировка не найдена");
 
-      const act = list.find((x) => x.id === w.activityTypeId) ?? null;
-      setActivity(act);
+        const act = list.find((x) => x.id === (w.activityTypeId ?? w.activityType?.id)) ?? null;
+        setActivity(act);
 
-      setStartedAtIso(w.startedAt);
-      setDurationMin(secToMinStr(w.durationSec));
-      setNotes(w.notes ?? "");
+        setStartedAtIso(w.startedAt);
+        setDurationMin(secToMinStr(w.durationSec));
+        setNotes(w.notes ?? "");
 
-      const next: Record<string, string> = {};
-      (act?.fieldsSchema?.fields ?? []).forEach((f: any) => (next[f.key] = ""));
+        const next: Record<string, string> = {};
+        (act?.fieldsSchema?.fields ?? []).forEach((f: any) => (next[f.key] = ""));
+        (w.metrics ?? []).forEach((m: any) => {
+          next[m.metricKey] = String(Number(m.valueNum));
+        });
 
-      (w.metrics ?? []).forEach((m: any) => {
-        next[m.metricKey] = String(Number(m.valueNum));
-      });
-
-      setValues(next);
-    } catch (e: any) {
-      Alert.alert("Ошибка", e?.message ?? "Не удалось загрузить тренировку");
-      navigation.goBack();
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [navigation, workoutId]);
+        setValues(next);
+      } catch (e: any) {
+        Alert.alert("Ошибка", e?.message ?? "Не удалось загрузить тренировку");
+        navigation.goBack();
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [navigation, workoutId]
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -374,12 +415,12 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
 
   const validate = () => {
     const startedAt = new Date(startedAtIso);
-    if (Number.isNaN(startedAt.getTime())) return "Дата/время некорректны";
+    if (Number.isNaN(startedAt.getTime())) return "Дата и время некорректны";
 
     const dur = durationMin.trim();
     if (dur) {
       const n = Number(dur);
-      if (Number.isNaN(n) || n < 0) return "Длительность должна быть числом (минуты)";
+      if (Number.isNaN(n) || n < 0) return "Длительность должна быть числом в минутах";
       if (n > 24 * 60) return "Слишком большая длительность";
     }
 
@@ -399,7 +440,7 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
 
   const onSave = async () => {
     const err = validate();
-    if (err) return Alert.alert("Проверь форму", err);
+    if (err) return Alert.alert("Проверьте форму", err);
     if (!activity) return;
 
     try {
@@ -477,90 +518,159 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
     );
   };
 
+  const requiredCount = numberFields.filter((f) => f.required).length;
+
   return (
     <KeyboardAvoidingView
-      style={[styles.screen, { backgroundColor: palette.bg }]}
+      style={styles.screen}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <StatusBar barStyle="dark-content" backgroundColor={palette.bg} />
+      <LinearGradient colors={[palette.bg, palette.bg2]} style={StyleSheet.absoluteFill} />
+
+      <View style={styles.blobTopRight} pointerEvents="none" />
+      <View style={styles.blobLeft} pointerEvents="none" />
+      <View style={styles.blobBottom} pointerEvents="none" />
+
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => load("refresh")}
-            tintColor={palette.primary}
+            tintColor={palette.purple}
           />
         }
       >
-        <View style={{ marginBottom: 12 }}>
-          <Text style={[styles.pageTitle, { color: palette.text }]}>Редактировать</Text>
-          <Text style={[styles.pageSubtitle, { color: palette.subtext }]}>
+        <LinearGradient
+          colors={[palette.purple, palette.purpleDark, "#7B61FF"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroBlobTop} />
+          <View style={styles.heroBlobBottom} />
+
+          <Text style={styles.heroKicker}>SPORTTRACKER</Text>
+          <Text style={styles.heroTitle}>Редактировать</Text>
+          <Text style={styles.heroSubtitle}>
             {activity ? `${activity.name} • ${activity.code}` : loading ? "Загрузка…" : "—"}
           </Text>
-        </View>
 
-        {/* Основное */}
-        <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Основное</Text>
-          <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
-            Дата, длительность и заметки
-          </Text>
-
-          <View style={{ marginTop: 12 }}>
-            <Text style={[styles.label, { color: palette.subtext }]}>Дата и время</Text>
-            <View style={[styles.readonlyRow, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
-              <Text style={[styles.readonlyText, { color: palette.text }]}>{formatLocalShort(startedAtIso)}</Text>
-              <Pressable
-                onPress={() => setStartedAtIso(isoNow())}
-                style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
-              >
-                <Text style={[styles.readonlyAction, { color: palette.primary }]}>сейчас</Text>
-              </Pressable>
+          <View style={styles.heroMiniRow}>
+            <View style={styles.heroMiniPill}>
+              <Ionicons name="calendar-outline" size={14} color={palette.purple} />
+              <Text style={styles.heroMiniPillText}>{formatLocalShort(startedAtIso)}</Text>
             </View>
 
-            <Text style={[styles.label, { color: palette.subtext, marginTop: 12 }]}>Длительность (мин)</Text>
-            <TextInput
-              value={durationMin}
-              onChangeText={(v) => setDurationMin(clampNumStr(v))}
-              placeholder="например 45"
-              placeholderTextColor={palette.subtext}
-              keyboardType="numeric"
-              style={[
-                styles.input,
-                { backgroundColor: palette.inputBg, borderColor: palette.border, color: palette.text },
-              ]}
-            />
+            {activity ? (
+              <View style={styles.heroMiniPill}>
+                <Ionicons name="fitness-outline" size={14} color={palette.purple} />
+                <Text style={styles.heroMiniPillText}>{activity.code}</Text>
+              </View>
+            ) : null}
+          </View>
+        </LinearGradient>
 
-            <Text style={[styles.label, { color: palette.subtext, marginTop: 12 }]}>Заметки</Text>
-            <TextInput
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="как прошло, самочувствие, что заметил…"
-              placeholderTextColor={palette.subtext}
-              multiline
-              style={[
-                styles.textarea,
-                { backgroundColor: palette.inputBg, borderColor: palette.border, color: palette.text },
-              ]}
+        <View style={styles.statsRow}>
+          <SummaryStat
+            value={activity ? String(numberFields.length) : "—"}
+            label="метрик"
+            tint="rgba(124,231,255,0.28)"
+            icon={<Ionicons name="stats-chart-outline" size={18} color={palette.purple} />}
+          />
+          <SummaryStat
+            value={activity ? String(requiredCount) : "—"}
+            label="обязательных"
+            tint="rgba(255,179,107,0.28)"
+            icon={<Ionicons name="checkmark-circle-outline" size={18} color={palette.purple} />}
+          />
+          <SummaryStat
+            value={notes.trim() ? "Да" : "Нет"}
+            label="заметки"
+            tint="rgba(255,141,216,0.28)"
+            icon={<Ionicons name="document-text-outline" size={18} color={palette.purple} />}
+          />
+        </View>
+
+        <View style={styles.mainCard}>
+          <Text style={styles.sectionKicker}>ОБЗОР</Text>
+          <Text style={styles.sectionTitle}>Редактирование тренировки</Text>
+          <Text style={styles.sectionDescription}>
+            Измените дату, длительность, заметки и числовые показатели выбранной активности.
+          </Text>
+
+          <View style={styles.badgesRow}>
+            <InfoBadge
+              icon={<Ionicons name="time-outline" size={14} color={palette.purple} />}
+              label="Дата"
+            />
+            <InfoBadge
+              icon={<Ionicons name="stats-chart-outline" size={14} color={palette.purple} />}
+              label="Метрики"
+            />
+            <InfoBadge
+              icon={<Ionicons name="create-outline" size={14} color={palette.purple} />}
+              label="Изменения"
             />
           </View>
         </View>
 
-        {/* Метрики */}
-        <View style={[styles.section, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <Text style={[styles.sectionTitle, { color: palette.text }]}>Метрики</Text>
-          <Text style={[styles.sectionSubtitle, { color: palette.subtext }]}>
-            Числовые параметры выбранной активности
+        <View style={styles.mainCard}>
+          <Text style={styles.sectionKicker}>ОСНОВНОЕ</Text>
+          <Text style={styles.sectionTitle}>Дата и заметки</Text>
+          <Text style={styles.sectionDescription}>
+            Здесь можно быстро обновить время тренировки, её длительность и комментарий.
           </Text>
 
-          <View style={{ marginTop: 12 }}>
+          <Text style={styles.label}>Дата и время</Text>
+          <View style={styles.readonlyRow}>
+            <Text style={styles.readonlyText}>{formatLocalShort(startedAtIso)}</Text>
+            <Pressable
+              onPress={() => setStartedAtIso(isoNow())}
+              style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
+            >
+              <Text style={styles.readonlyAction}>сейчас</Text>
+            </Pressable>
+          </View>
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Длительность (мин)</Text>
+          <TextInput
+            value={durationMin}
+            onChangeText={(v) => setDurationMin(clampNumStr(v))}
+            placeholder="например 45"
+            placeholderTextColor={palette.subtext}
+            keyboardType="numeric"
+            style={styles.input}
+          />
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Заметки</Text>
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Как прошло, самочувствие, что заметили…"
+            placeholderTextColor={palette.subtext}
+            multiline
+            style={styles.textarea}
+          />
+        </View>
+
+        <View style={styles.mainCard}>
+          <Text style={styles.sectionKicker}>МЕТРИКИ</Text>
+          <Text style={styles.sectionTitle}>Показатели</Text>
+          <Text style={styles.sectionDescription}>
+            Отредактируйте числовые значения, связанные с этой активностью.
+          </Text>
+
+          <View style={{ marginTop: 4 }}>
             {loading ? (
-              <Text style={{ color: palette.subtext, fontWeight: "800" }}>Загрузка…</Text>
+              <Text style={styles.loadingText}>Загрузка…</Text>
             ) : numberFields.length === 0 ? (
-              <View style={[styles.emptyBox, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
-                <Text style={[styles.emptyTitle, { color: palette.text }]}>Нет метрик</Text>
-                <Text style={[styles.emptySub, { color: palette.subtext }]}>
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyTitle}>Нет метрик</Text>
+                <Text style={styles.emptySub}>
                   Для этой активности не задано числовых параметров.
                 </Text>
               </View>
@@ -573,7 +683,6 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
                   required={f.required}
                   value={values[f.key] ?? ""}
                   onChange={(v) => setValues((p) => ({ ...p, [f.key]: v }))}
-                  palette={palette}
                 />
               ))
             )}
@@ -581,54 +690,59 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
         </View>
 
         <PrimaryButton
-          title={saving ? "Сохраняю…" : "Сохранить изменения"}
+          title={saving ? "Сохраняем…" : "Сохранить изменения"}
           subtitle="История и аналитика обновятся"
           onPress={onSave}
-          palette={palette}
           loading={saving}
           disabled={saving || loading}
         />
 
         <View style={{ height: 10 }} />
 
-        <DangerButton title="Удалить тренировку" onPress={onDelete} palette={palette} loading={deleting} />
+        <DangerButton
+          title={deleting ? "Удаляем…" : "Удалить тренировку"}
+          onPress={onDelete}
+          loading={deleting}
+        />
 
         <View style={{ height: 18 }} />
       </ScrollView>
 
-      {/* Success modal */}
       <Modal visible={toastVisible} transparent animationType="fade" onRequestClose={() => setToastVisible(false)}>
         <View style={styles.toastOverlay}>
-          <View style={[styles.toastCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <View style={styles.toastCard}>
             <ConfettiBurst show={confettiOn} />
-            <View style={[styles.toastGlow, { backgroundColor: "rgba(45,107,255,0.16)" }]} />
-            <View style={[styles.toastGlow2, { backgroundColor: "rgba(124,240,141,0.12)" }]} />
 
-            <Text style={[styles.toastTitle, { color: palette.text }]}>🎉 Новое достижение!</Text>
-            <Text style={[styles.toastSubtitle, { color: palette.subtext }]}>
-              Ты открыл{grantedTitles.length > 1 ? " сразу несколько" : ""}{" "}
-              бейдж{grantedTitles.length > 1 ? "ей" : ""}.
+            <View style={styles.toastGlow} />
+            <View style={styles.toastGlow2} />
+
+            <Text style={styles.toastTitle}>🎉 Новое достижение!</Text>
+            <Text style={styles.toastSubtitle}>
+              Вы открыли{grantedTitles.length > 1 ? " сразу несколько" : ""} бейдж
+              {grantedTitles.length > 1 ? "ей" : ""}.
             </Text>
 
             <View style={{ marginTop: 12, gap: 8 }}>
               {grantedTitles.map((t) => (
-                <View key={t} style={[styles.toastPill, { backgroundColor: palette.inputBg, borderColor: palette.border }]}>
-                  <Text style={[styles.toastPillText, { color: palette.text }]} numberOfLines={1}>
+                <View key={t} style={styles.toastPill}>
+                  <Text style={styles.toastPillText} numberOfLines={1}>
                     {t}
                   </Text>
                 </View>
               ))}
             </View>
 
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+            <View style={styles.toastButtons}>
               <Pressable
                 onPress={() => {
                   setToastVisible(false);
                   navigation.goBack();
                 }}
-                style={[styles.toastBtn, { backgroundColor: palette.inputBg, borderColor: palette.border }]}
+                style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flex: 1 }]}
               >
-                <Text style={[styles.toastBtnText, { color: palette.text }]}>Ок</Text>
+                <View style={styles.toastSecondaryBtn}>
+                  <Text style={styles.toastSecondaryBtnText}>Ок</Text>
+                </View>
               </Pressable>
 
               <Pressable
@@ -636,9 +750,16 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
                   setToastVisible(false);
                   navigation.navigate("Achievements");
                 }}
-                style={[styles.toastBtn, { backgroundColor: palette.primary, borderColor: "transparent" }]}
+                style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flex: 1 }]}
               >
-                <Text style={[styles.toastBtnText, { color: "#fff" }]}>Достижения</Text>
+                <LinearGradient
+                  colors={[palette.purple, palette.purpleDark]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.toastPrimaryBtn}
+                >
+                  <Text style={styles.toastPrimaryBtnText}>Достижения</Text>
+                </LinearGradient>
               </Pressable>
             </View>
           </View>
@@ -649,83 +770,376 @@ export default function EditWorkoutScreen({ route, navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  content: { padding: 16, paddingTop: 18, paddingBottom: 24 },
-
-  pageTitle: { fontSize: 22, fontWeight: "900" },
-  pageSubtitle: { marginTop: 6, fontSize: 13, fontWeight: "700" },
-
-  section: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 14,
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } }
-      : { elevation: 1 }),
+  screen: {
+    flex: 1,
+    backgroundColor: palette.bg,
   },
-  sectionTitle: { fontSize: 15.5, fontWeight: "900" },
-  sectionSubtitle: { marginTop: 4, fontSize: 12.5, fontWeight: "700" },
 
-  label: { fontSize: 12.5, fontWeight: "800", marginBottom: 6 },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
+
+  blobTopRight: {
+    position: "absolute",
+    top: -20,
+    right: -10,
+    width: 140,
+    height: 100,
+    backgroundColor: "rgba(109,76,255,0.14)",
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 22,
+    borderTopLeftRadius: 80,
+    borderTopRightRadius: 12,
+  },
+
+  blobLeft: {
+    position: "absolute",
+    left: -28,
+    top: 240,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(184,168,255,0.16)",
+  },
+
+  blobBottom: {
+    position: "absolute",
+    right: -20,
+    bottom: 150,
+    width: 120,
+    height: 76,
+    backgroundColor: "rgba(124,231,255,0.16)",
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 26,
+    borderBottomLeftRadius: 60,
+    borderBottomRightRadius: 60,
+  },
+
+  heroCard: {
+    minHeight: 220,
+    borderRadius: 30,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 18,
+    overflow: "hidden",
+    marginBottom: 16,
+    shadowColor: "#6D4CFF",
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+
+  heroBlobTop: {
+    position: "absolute",
+    top: -20,
+    right: -12,
+    width: 120,
+    height: 84,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderBottomLeftRadius: 56,
+    borderBottomRightRadius: 26,
+    borderTopLeftRadius: 70,
+    borderTopRightRadius: 16,
+  },
+
+  heroBlobBottom: {
+    position: "absolute",
+    bottom: -12,
+    left: -10,
+    width: 128,
+    height: 64,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 36,
+    borderBottomLeftRadius: 80,
+    borderBottomRightRadius: 38,
+  },
+
+  heroKicker: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.6,
+    marginBottom: 12,
+  },
+
+  heroTitle: {
+    color: "#FFFFFF",
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: "900",
+    marginBottom: 10,
+    maxWidth: "92%",
+  },
+
+  heroSubtitle: {
+    color: "rgba(255,255,255,0.84)",
+    fontSize: 14.5,
+    lineHeight: 21,
+    fontWeight: "600",
+    maxWidth: "92%",
+    marginBottom: 18,
+  },
+
+  heroMiniRow: {
+    flexDirection: "row",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+
+  heroMiniPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  heroMiniPillText: {
+    color: palette.purple,
+    fontSize: 12.5,
+    fontWeight: "800",
+    marginLeft: 6,
+  },
+
+  statsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 16,
+  },
+
+  summaryStat: {
+    flex: 1,
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: palette.line,
+  },
+
+  summaryStatIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+
+  summaryStatValue: {
+    color: palette.text,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  summaryStatLabel: {
+    color: palette.subtext,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 3,
+    textAlign: "center",
+  },
+
+  mainCard: {
+    backgroundColor: palette.card,
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    borderWidth: 1,
+    borderColor: palette.line,
+    marginBottom: 16,
+  },
+
+  sectionKicker: {
+    color: palette.purple,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1.6,
+    marginBottom: 8,
+  },
+
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 29,
+    lineHeight: 32,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+
+  sectionDescription: {
+    color: palette.subtext,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "600",
+    marginBottom: 16,
+  },
+
+  badgesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  infoBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: palette.cardSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  infoBadgeText: {
+    color: palette.purple,
+    fontSize: 12.5,
+    fontWeight: "800",
+    marginLeft: 6,
+  },
+
+  label: {
+    color: palette.subtext,
+    fontSize: 12.5,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
 
   input: {
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.cardSoft,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === "ios" ? 12 : 10,
     fontSize: 15.5,
     fontWeight: "800",
+    color: palette.text,
   },
+
   textarea: {
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.cardSoft,
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 15,
     fontWeight: "800",
     minHeight: 96,
     textAlignVertical: "top",
+    color: palette.text,
   },
 
   readonlyRow: {
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.cardSoft,
     paddingHorizontal: 12,
     paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  readonlyText: { fontSize: 15.5, fontWeight: "900" },
-  readonlyAction: { fontSize: 13.5, fontWeight: "900" },
 
-  primaryBtn: {
-    borderRadius: 16,
-    paddingVertical: 14,
+  readonlyText: {
+    color: palette.text,
+    fontSize: 15.5,
+    fontWeight: "900",
+  },
+
+  readonlyAction: {
+    color: palette.purple,
+    fontSize: 13.5,
+    fontWeight: "900",
+  },
+
+  primaryButtonWrap: {
+    borderRadius: 22,
+    overflow: "hidden",
+  },
+
+  primaryButton: {
+    minHeight: 62,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  primaryButtonIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  primaryButtonTitle: {
+    color: "#FFFFFF",
+    fontSize: 15.5,
+    fontWeight: "900",
+  },
+
+  primaryButtonSub: {
+    marginTop: 2,
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12.5,
+    fontWeight: "800",
+  },
+
+  dangerButton: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(229,72,77,0.35)",
+    backgroundColor: palette.dangerSoft,
+    paddingVertical: 13,
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 10,
   },
-  primaryBtnTitle: { color: "#fff", fontSize: 15.5, fontWeight: "900" },
-  primaryBtnSub: { marginTop: 2, color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: "800" },
-  chevWhite: { color: "#fff", fontSize: 24, fontWeight: "900" },
 
-  dangerBtn: {
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  dangerButtonText: {
+    color: palette.danger,
+    fontSize: 13.8,
+    fontWeight: "900",
   },
-  dangerBtnText: { fontSize: 13.5, fontWeight: "900" },
 
-  emptyBox: { borderRadius: 16, borderWidth: 1, padding: 12 },
-  emptyTitle: { fontSize: 13.5, fontWeight: "900" },
-  emptySub: { marginTop: 4, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
+  loadingText: {
+    color: palette.subtext,
+    fontWeight: "800",
+  },
+
+  emptyBox: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.line,
+    padding: 12,
+    backgroundColor: palette.cardSoft,
+  },
+
+  emptyTitle: {
+    color: palette.text,
+    fontSize: 13.5,
+    fontWeight: "900",
+  },
+
+  emptySub: {
+    color: palette.subtext,
+    marginTop: 4,
+    fontSize: 12.5,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
 
   toastOverlay: {
     flex: 1,
@@ -734,29 +1148,110 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 16,
   },
+
   toastCard: {
     width: "100%",
     maxWidth: 420,
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
+    borderColor: palette.line,
     padding: 14,
     overflow: "hidden",
+    backgroundColor: palette.card,
     ...(Platform.OS === "ios"
       ? { shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 12 } }
       : { elevation: 4 }),
   },
 
-  toastGlow: { position: "absolute", top: -90, left: -60, width: 200, height: 200, borderRadius: 100 },
-  toastGlow2: { position: "absolute", top: -110, right: -90, width: 240, height: 240, borderRadius: 120 },
+  toastGlow: {
+    position: "absolute",
+    top: -90,
+    left: -60,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: "rgba(109,76,255,0.16)",
+  },
 
-  toastTitle: { fontSize: 16, fontWeight: "900" },
-  toastSubtitle: { marginTop: 6, fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
+  toastGlow2: {
+    position: "absolute",
+    top: -110,
+    right: -90,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: "rgba(36,168,101,0.12)",
+  },
 
-  toastPill: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
-  toastPillText: { fontSize: 13.5, fontWeight: "900" },
+  toastTitle: {
+    color: palette.text,
+    fontSize: 16,
+    fontWeight: "900",
+  },
 
-  toastBtn: { flex: 1, borderRadius: 14, borderWidth: 1, paddingVertical: 12, alignItems: "center" },
-  toastBtnText: { fontSize: 14, fontWeight: "900" },
+  toastSubtitle: {
+    color: palette.subtext,
+    marginTop: 6,
+    fontSize: 12.5,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
 
-  confettiLayer: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
+  toastPill: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.line,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: palette.cardSoft,
+  },
+
+  toastPillText: {
+    color: palette.text,
+    fontSize: 13.5,
+    fontWeight: "900",
+  },
+
+  toastButtons: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+
+  toastSecondaryBtn: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.line,
+    paddingVertical: 12,
+    alignItems: "center",
+    backgroundColor: palette.cardSoft,
+  },
+
+  toastSecondaryBtnText: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  toastPrimaryBtn: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+
+  toastPrimaryBtnText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  confettiLayer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
 });

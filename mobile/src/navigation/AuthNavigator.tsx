@@ -13,8 +13,8 @@ const Stack = createNativeStackNavigator<AuthStackParamList>();
 export default function AuthNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerTitleAlign: 'center' }}>
-      <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Вход' }} />
-      <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} options={{ title: 'Телефон' }} />
+      <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }
