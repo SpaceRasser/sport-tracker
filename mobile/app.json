@@ -40,14 +40,29 @@
         {
           "action": "VIEW",
           "autoVerify": false,
-          "data": [{ "scheme": "sporttracker", "host": "vk-auth" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "sporttracker",
+              "host": "vk-auth"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         },
         {
           "action": "VIEW",
           "autoVerify": false,
-          "data": [{ "scheme": "vk54469457" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "vk54469457"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -68,7 +83,8 @@
         }
       ],
       "@react-native-firebase/app",
-      "expo-localization"
+      "expo-localization",
+      "expo-font"
     ],
     "extra": {
       "eas": {
