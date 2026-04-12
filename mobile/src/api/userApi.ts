@@ -16,6 +16,13 @@ export type MeResponse = {
       weightKg?: number | null;
       level?: 'beginner' | 'intermediate' | 'advanced' | null;
       goals?: any | null;
+      healthLimitations?: Array<
+        | 'cardiovascular'
+        | 'musculoskeletal'
+        | 'respiratory'
+        | 'metabolic'
+        | 'neurological'
+      >;
       updatedAt?: string;
     } | null;
   };
@@ -28,6 +35,13 @@ export type UpdateProfilePayload = {
   weightKg?: number;
   level?: 'beginner' | 'intermediate' | 'advanced';
   goals?: any;
+  healthLimitations?: Array<
+    | 'cardiovascular'
+    | 'musculoskeletal'
+    | 'respiratory'
+    | 'metabolic'
+    | 'neurological'
+  >;
 };
 
 export async function getMe() {

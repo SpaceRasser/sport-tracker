@@ -1,4 +1,12 @@
-import { IsEnum, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsObject,
+  IsOptional,
+  Max,
+  Min,
+} from 'class-validator';
 
 enum UserLevel {
   beginner = 'beginner',
@@ -13,6 +21,14 @@ enum Gender {
   unknown = 'unknown',
 }
 
+export enum HealthLimitation {
+  cardiovascular = 'cardiovascular',
+  musculoskeletal = 'musculoskeletal',
+  respiratory = 'respiratory',
+  metabolic = 'metabolic',
+  neurological = 'neurological',
+}
+
 export class UpdateProfileDto {
   @IsOptional()
   @IsEnum(Gender)
@@ -23,7 +39,7 @@ export class UpdateProfileDto {
    * На клиенте шлём ISO строку "YYYY-MM-DD" (или полный ISO) — Prisma переварит Date.
    */
   @IsOptional()
-  @IsString()
+  @IsDateString()
   birthdate?: string;
 
   @IsOptional()
@@ -43,4 +59,9 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsObject()
   goals?: any;
+
+  @IsOptional()
+  @IsArray()
+  @IsEnum(HealthLimitation, { each: true })
+  healthLimitations?: HealthLimitation[];
 }

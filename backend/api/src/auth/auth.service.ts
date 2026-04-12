@@ -608,6 +608,17 @@ export class AuthService {
   async updateMyProfile(userId: string, dto: any) {
     // birthdate: строку в Date (если прислали)
     const birthdate = dto.birthdate ? new Date(dto.birthdate) : undefined;
+    const healthLimitations: string[] | undefined = Array.isArray(
+      dto.healthLimitations,
+    )
+      ? Array.from(
+          new Set(
+            dto.healthLimitations.filter((item: unknown): item is string =>
+              typeof item === 'string',
+            ),
+          ),
+        )
+      : undefined;
 
     const profile = await this.prisma.profile.upsert({
       where: { userId },
@@ -618,6 +629,7 @@ export class AuthService {
         weightKg: dto.weightKg ?? undefined,
         level: dto.level ?? undefined,
         goals: dto.goals ?? undefined,
+        healthLimitations,
       },
       create: {
         userId,
@@ -627,6 +639,7 @@ export class AuthService {
         weightKg: dto.weightKg ?? null,
         level: dto.level ?? null,
         goals: dto.goals ?? null,
+        healthLimitations: healthLimitations ?? [],
       },
     });
 

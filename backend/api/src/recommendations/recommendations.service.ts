@@ -2,66 +2,141 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PushService } from '../push/push.service';
 
+type HealthLimitation =
+  | 'cardiovascular'
+  | 'musculoskeletal'
+  | 'respiratory'
+  | 'metabolic'
+  | 'neurological';
+
+type AgeGroup = 'under_18' | '18_39' | '40_59' | '60_plus';
+
+type RuleConstraint = {
+  cooldownDays?: number;
+  priority?: number;
+  minAge?: number;
+  maxAge?: number;
+  ageGroups?: AgeGroup[];
+  requiredLimitations?: HealthLimitation[];
+  excludedLimitations?: HealthLimitation[];
+};
+
 type Rule =
-  | { type: 'always'; cooldownDays?: number; priority?: number }
-  | {
-      type: 'inactivity_days_gte';
-      days: number;
-      cooldownDays?: number;
-      priority?: number;
-    }
-  | {
-      type: 'workouts_in_days_lt';
-      days: number;
-      threshold: number;
-      cooldownDays?: number;
-      priority?: number;
-    }
-  | {
-      type: 'no_activity_in_days';
-      activityCode: string;
-      days: number;
-      cooldownDays?: number;
-      priority?: number;
-    }
-  | {
-      type: 'activity_present';
-      activityCode: string;
-      days: number;
-      cooldownDays?: number;
-      priority?: number;
-    }
-  | {
-      type: 'run_load_increase_pct_gt';
-      days: number;
-      pct: number;
-      cooldownDays?: number;
-      priority?: number;
-    }
-  | {
+  | ({ type: 'always' } & RuleConstraint)
+  | ({ type: 'inactivity_days_gte'; days: number } & RuleConstraint)
+  | ({ type: 'workouts_in_days_lt'; days: number; threshold: number } & RuleConstraint)
+  | ({ type: 'no_activity_in_days'; activityCode: string; days: number } & RuleConstraint)
+  | ({ type: 'activity_present'; activityCode: string; days: number } & RuleConstraint)
+  | ({ type: 'run_load_increase_pct_gt'; days: number; pct: number } & RuleConstraint)
+  | ({
       type: 'plateau_metric';
       activityCode: string;
       metricKey: string;
       days: number;
-      cooldownDays?: number;
-      priority?: number;
-    }
-  | { type: 'bmi_gte'; bmi: number; cooldownDays?: number; priority?: number }
-  | { type: 'no_streak_3'; cooldownDays?: number; priority?: number };
+    } & RuleConstraint)
+  | ({ type: 'bmi_gte'; bmi: number } & RuleConstraint)
+  | ({ type: 'no_streak_3' } & RuleConstraint);
+
+type RecommendationFeatures = {
+  age: number | null;
+  ageGroup: AgeGroup | null;
+  bmi: number | null;
+  heightCm: number | null;
+  weightKg: number | null;
+  totalWorkouts: number;
+  workoutsLast7: number;
+  daysSinceLastWorkout: number;
+  daysSinceLastStrength: number;
+  streakDays: number;
+  runLoadIncreasePct: number;
+  runLoadLast: number;
+  runLoadPrev: number;
+  plateauPace: { ok: boolean; delta: number | null; metricLabel?: string };
+  targetWeekly: number;
+  metricLabel: string;
+  healthLimitations: HealthLimitation[];
+  healthLimitationsLabel: string;
+};
 
 function round1(n: number) {
   return Math.round(n * 10) / 10;
 }
+
 function dayStart(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
+
 function daysBetween(a: Date, b: Date) {
   return Math.floor(
     (dayStart(b).getTime() - dayStart(a).getTime()) / (24 * 60 * 60 * 1000),
   );
 }
+
 function renderTemplate(tpl: string, vars: Record<string, any>) {
   return tpl.replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? `{${k}}`).toString());
+}
+
+function calculateAge(birthdate?: Date | null) {
+  if (!birthdate) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - birthdate.getFullYear();
+  const hasBirthdayPassed =
+    today.getMonth() > birthdate.getMonth() ||
+    (today.getMonth() === birthdate.getMonth() &&
+      today.getDate() >= birthdate.getDate());
+
+  if (!hasBirthdayPassed) age -= 1;
+  return age >= 0 ? age : null;
+}
+
+function resolveAgeGroup(age: number | null): AgeGroup | null {
+  if (age == null) return null;
+  if (age < 18) return 'under_18';
+  if (age < 40) return '18_39';
+  if (age < 60) return '40_59';
+  return '60_plus';
+}
+
+function limitationLabel(value: HealthLimitation) {
+  switch (value) {
+    case 'cardiovascular':
+      return 'сердечно-сосудистые';
+    case 'musculoskeletal':
+      return 'опорно-двигательные';
+    case 'respiratory':
+      return 'дыхательные';
+    case 'metabolic':
+      return 'метаболические';
+    case 'neurological':
+      return 'неврологические';
+  }
+}
+
+function limitationLabels(values: HealthLimitation[]) {
+  if (!values.length) return 'не указаны';
+  return values.map(limitationLabel).join(', ');
+}
+
+function resolveTargetWeekly(
+  age: number | null,
+  healthLimitations: HealthLimitation[],
+) {
+  let target = 3;
+
+  if (age != null && age >= 60) {
+    target = 2;
+  }
+
+  if (
+    healthLimitations.some((item) =>
+      ['cardiovascular', 'respiratory', 'neurological'].includes(item),
+    )
+  ) {
+    target = Math.min(target, 2);
+  }
+
+  return target;
 }
 
 @Injectable()
@@ -72,10 +147,8 @@ export class RecommendationsService {
   ) {}
 
   async getForUser(userId: string) {
-    // 1) считаем фичи
     const features = await this.computeFeatures(userId);
 
-    // 2) берём активные шаблоны
     const templates = await this.prisma.recommendationTemplate.findMany({
       where: { active: true },
       select: {
@@ -84,34 +157,28 @@ export class RecommendationsService {
         title: true,
         description: true,
         rule: true,
-        active: true,
-        createdAt: true,
       },
     });
 
-    // 3) существующие рекомендации (для cooldown / dedupe)
     const existing = await this.prisma.userRecommendation.findMany({
       where: { userId },
       select: {
         id: true,
         templateId: true,
         createdAt: true,
-        dismissedAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
 
     const lastByTemplate = new Map<string, Date>();
-    for (const r of existing) {
-      if (!lastByTemplate.has(r.templateId)) {
-        lastByTemplate.set(r.templateId, r.createdAt);
+    for (const item of existing) {
+      if (!lastByTemplate.has(item.templateId)) {
+        lastByTemplate.set(item.templateId, item.createdAt);
       }
     }
 
-    // 4) генерим новые (если rule ok и cooldown прошёл)
     const now = new Date();
     const createdIds: string[] = [];
-
     const scored: Array<{
       tplId: string;
       code: string;
@@ -119,73 +186,63 @@ export class RecommendationsService {
       text: string;
       priority: number;
       meta: any;
-      cooldownDays: number;
     }> = [];
 
-    for (const t of templates) {
-      const rule = (t.rule ?? {}) as Rule;
+    for (const template of templates) {
+      const rule = (template.rule ?? {}) as Rule;
       const check = await this.checkRule(userId, rule, features);
-
       if (!check.ok) continue;
 
-      const cooldownDays = Number((rule as any).cooldownDays ?? 7);
-      const priority = Number((rule as any).priority ?? 50);
+      const cooldownDays = Number(rule.cooldownDays ?? 7);
+      const priority = Number(rule.priority ?? 50);
+      const last = lastByTemplate.get(template.id);
 
-      const last = lastByTemplate.get(t.id);
-      if (last) {
-        const passed = daysBetween(last, now);
-        if (passed < cooldownDays) continue;
+      if (last && daysBetween(last, now) < cooldownDays) {
+        continue;
       }
 
-      const text = renderTemplate(t.description, check.vars);
-
       scored.push({
-        tplId: t.id,
-        code: t.code,
-        title: t.title,
-        text,
+        tplId: template.id,
+        code: template.code,
+        title: template.title,
+        text: renderTemplate(template.description, check.vars),
         priority,
         meta: {
           vars: check.vars,
           reason: check.reason,
-          templateCode: t.code,
+          templateCode: template.code,
         },
-        cooldownDays,
       });
     }
 
-    // 5) сортируем и создаём top N (чтобы не спамить)
     scored.sort((a, b) => b.priority - a.priority);
-    const toCreate = scored.slice(0, 5);
 
-    for (const rec of toCreate) {
+    for (const recommendation of scored.slice(0, 5)) {
       const created = await this.prisma.userRecommendation.create({
         data: {
           userId,
-          templateId: rec.tplId,
-          meta: rec.meta,
+          templateId: recommendation.tplId,
+          meta: recommendation.meta,
         },
         select: { id: true },
       });
       createdIds.push(created.id);
     }
 
-    // 5.1) пуш “Новые советы” + антиспам (раз в сутки) + настройка enabled
     if (createdIds.length > 0) {
-      const s =
+      const settings =
         (await this.prisma.notificationSettings.findUnique({
           where: { userId },
         })) ??
         (await this.prisma.notificationSettings.create({ data: { userId } }));
 
-      if (s.enabled && s.recommendationsEnabled) {
-        const now = new Date();
-        const last = s.lastRecommendationsSentAt;
+      if (settings.enabled && settings.recommendationsEnabled) {
+        const last = settings.lastRecommendationsSentAt;
         const oneDayMs = 24 * 60 * 60 * 1000;
 
         if (!last || now.getTime() - last.getTime() >= oneDayMs) {
           await this.push.sendToUser(userId, {
-            title: 'Новые советы ✨',
+            title: 'Новые советы',
             body: `Добавлено советов: ${createdIds.length}`,
             data: { kind: 'recommendations', created: createdIds.length },
           });
@@ -198,7 +255,6 @@ export class RecommendationsService {
       }
     }
 
-    // 6) отдаём список рекомендаций (можно и скрытые, и активные)
     const rows = await this.prisma.userRecommendation.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
@@ -214,25 +270,23 @@ export class RecommendationsService {
       },
     });
 
-    const items = rows.map((r) => {
-      const meta = (r.meta as any) ?? {};
+    const items = rows.map((row) => {
+      const meta = (row.meta as any) ?? {};
       const vars = meta?.vars ?? {};
-      const rawReason = meta?.reason ?? null;
-      const templateCode = meta?.templateCode ?? r.template.code ?? null;
 
       return {
-        id: r.id,
-        createdAt: r.createdAt,
-        dismissedAt: r.dismissedAt,
+        id: row.id,
+        createdAt: row.createdAt,
+        dismissedAt: row.dismissedAt,
         template: {
-          id: r.template.id,
-          code: r.template.code,
-          title: r.template.title,
+          id: row.template.id,
+          code: row.template.code,
+          title: row.template.title,
         },
         text: meta?.vars
-          ? renderTemplate(r.template.description, vars)
-          : r.template.description,
-        reason: this.humanizeReason(rawReason, vars, templateCode),
+          ? renderTemplate(row.template.description, vars)
+          : row.template.description,
+        reason: this.humanizeReason(meta?.reason, vars, meta?.templateCode),
       };
     });
 
@@ -244,27 +298,33 @@ export class RecommendationsService {
   }
 
   async dismiss(userId: string, id: string) {
-    // защита: dismiss только свои
-    const rec = await this.prisma.userRecommendation.findFirst({
+    const recommendation = await this.prisma.userRecommendation.findFirst({
       where: { id, userId },
       select: { id: true },
     });
-    if (!rec) return { ok: true };
+
+    if (!recommendation) return { ok: true };
 
     await this.prisma.userRecommendation.update({
       where: { id },
       data: { dismissedAt: new Date() },
     });
+
     return { ok: true };
   }
 
-  private async computeFeatures(userId: string) {
+  private async computeFeatures(userId: string): Promise<RecommendationFeatures> {
     const now = new Date();
 
     const [profile, lastWorkout, totalWorkouts] = await Promise.all([
       this.prisma.profile.findUnique({
         where: { userId },
-        select: { heightCm: true, weightKg: true, level: true },
+        select: {
+          birthdate: true,
+          heightCm: true,
+          weightKg: true,
+          healthLimitations: true,
+        },
       }),
       this.prisma.workout.findFirst({
         where: { userId },
@@ -275,8 +335,11 @@ export class RecommendationsService {
     ]);
 
     const heightCm = profile?.heightCm ?? null;
-    const weightKg =
-      profile?.weightKg != null ? Number(profile.weightKg) : null;
+    const weightKg = profile?.weightKg != null ? Number(profile.weightKg) : null;
+    const age = calculateAge(profile?.birthdate);
+    const ageGroup = resolveAgeGroup(age);
+    const healthLimitations = (profile?.healthLimitations ??
+      []) as HealthLimitation[];
 
     const bmi =
       heightCm && weightKg
@@ -294,36 +357,34 @@ export class RecommendationsService {
       },
     });
 
-    // last strength (GYM)
     const lastStrength = await this.prisma.workout.findFirst({
       where: { userId, activityType: { code: 'GYM' } },
       orderBy: { startedAt: 'desc' },
       select: { startedAt: true },
     });
+
     const daysSinceLastStrength = lastStrength?.startedAt
       ? daysBetween(lastStrength.startedAt, now)
       : 999;
 
-    // streak days: считаем последние 14 дней, сколько подряд с конца
     let streak = 0;
-    for (let i = 0; i < 14; i++) {
-      const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const d1 = new Date(
+    for (let i = 0; i < 14; i += 1) {
+      const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const to = new Date(
         now.getFullYear(),
         now.getMonth(),
         now.getDate() - i + 1,
       );
-      const c = await this.prisma.workout.count({
-        where: { userId, startedAt: { gte: d0, lt: d1 } },
+
+      const count = await this.prisma.workout.count({
+        where: { userId, startedAt: { gte: from, lt: to } },
       });
-      if (c > 0) streak++;
+
+      if (count > 0) streak += 1;
       else break;
     }
 
-    // run load increase % (sum distance_km last 7 vs prev 7)
     const runLoad = await this.runLoadIncreasePct(userId, 7);
-
-    // plateau pace (avg_pace_min_km) : compare avg last 7 to avg previous 7 within last 21
     const plateau = await this.plateauMetric(
       userId,
       'RUN',
@@ -332,6 +393,8 @@ export class RecommendationsService {
     );
 
     return {
+      age,
+      ageGroup,
       bmi,
       heightCm,
       weightKg,
@@ -343,9 +406,11 @@ export class RecommendationsService {
       runLoadIncreasePct: runLoad.pct,
       runLoadLast: runLoad.last,
       runLoadPrev: runLoad.prev,
-      plateauPace: plateau, // { ok, metricLabel, delta }
-      targetWeekly: 3,
+      plateauPace: plateau,
+      targetWeekly: resolveTargetWeekly(age, healthLimitations),
       metricLabel: 'темп',
+      healthLimitations,
+      healthLimitationsLabel: limitationLabels(healthLimitations),
     };
   }
 
@@ -366,14 +431,15 @@ export class RecommendationsService {
         },
         select: { valueNum: true },
       });
-      return rows.reduce((acc, r) => acc + Number(r.valueNum), 0);
+
+      return rows.reduce((acc, row) => acc + Number(row.valueNum), 0);
     };
 
     const last = await sumForRange(fromLast, now);
     const prev = await sumForRange(fromPrev, fromLast);
-
     const pct =
       prev > 0 ? Math.round(((last - prev) / prev) * 100) : last > 0 ? 999 : 0;
+
     return { last: round1(last), prev: round1(prev), pct };
   }
 
@@ -387,115 +453,185 @@ export class RecommendationsService {
     const from = new Date(now.getTime() - days * 86400000);
     const mid = new Date(now.getTime() - 7 * 86400000);
 
-    const avgForRange = async (from: Date, to: Date) => {
+    const avgForRange = async (start: Date, end: Date) => {
       const rows = await this.prisma.workoutMetric.findMany({
         where: {
           metricKey,
           workout: {
             userId,
             activityType: { code: activityCode },
-            startedAt: { gte: from, lt: to },
+            startedAt: { gte: start, lt: end },
           },
         },
         select: { valueNum: true },
       });
+
       if (!rows.length) return null;
-      const s = rows.reduce((acc, r) => acc + Number(r.valueNum), 0);
-      return s / rows.length;
+
+      const sum = rows.reduce((acc, row) => acc + Number(row.valueNum), 0);
+      return sum / rows.length;
     };
 
     const recent = await avgForRange(mid, now);
     const older = await avgForRange(from, mid);
 
-    if (recent == null || older == null) return { ok: false, delta: null };
+    if (recent == null || older == null) {
+      return { ok: false, delta: null };
+    }
 
-    // для pace: меньше лучше, поэтому "плато" = улучшения нет (recent >= older - small)
     const delta = round1(recent - older);
-    const ok = delta >= -0.05; // почти не улучшилось
-    return { ok, delta, metricLabel: 'темп' };
+    return { ok: delta >= -0.05, delta, metricLabel: 'темп' };
+  }
+
+  private passesConstraints(rule: RuleConstraint, features: RecommendationFeatures) {
+    if (typeof rule.minAge === 'number') {
+      if (features.age == null || features.age < rule.minAge) return false;
+    }
+
+    if (typeof rule.maxAge === 'number') {
+      if (features.age == null || features.age > rule.maxAge) return false;
+    }
+
+    if (rule.ageGroups?.length) {
+      if (!features.ageGroup || !rule.ageGroups.includes(features.ageGroup)) {
+        return false;
+      }
+    }
+
+    if (rule.requiredLimitations?.length) {
+      const hasRequired = rule.requiredLimitations.some((item) =>
+        features.healthLimitations.includes(item),
+      );
+
+      if (!hasRequired) return false;
+    }
+
+    if (rule.excludedLimitations?.length) {
+      const hasExcluded = rule.excludedLimitations.some((item) =>
+        features.healthLimitations.includes(item),
+      );
+
+      if (hasExcluded) return false;
+    }
+
+    return true;
+  }
+
+  private async countWorkoutsInDays(userId: string, days: number) {
+    const now = new Date();
+    const from = new Date(now.getTime() - days * 86400000);
+
+    return this.prisma.workout.count({
+      where: {
+        userId,
+        startedAt: { gte: from },
+      },
+    });
   }
 
   private async checkRule(
     userId: string,
     rule: Rule,
-    f: any,
+    features: RecommendationFeatures,
   ): Promise<{ ok: boolean; vars: any; reason?: string }> {
-    const vars: any = {
-      ...f,
-      bmi: f.bmi ?? '—',
-      workoutsLast7: f.workoutsLast7 ?? 0,
-      daysSinceLastWorkout: f.daysSinceLastWorkout ?? 0,
-      daysSinceLastStrength: f.daysSinceLastStrength ?? 0,
-      targetWeekly: f.targetWeekly ?? 3,
-      loadIncreasePct: f.runLoadIncreasePct ?? 0,
-      metricLabel: f.plateauPace?.metricLabel ?? 'метрика',
+    const vars = {
+      ...features,
+      age: features.age ?? '—',
+      bmi: features.bmi ?? '—',
+      workoutsLast7: features.workoutsLast7 ?? 0,
+      daysSinceLastWorkout: features.daysSinceLastWorkout ?? 0,
+      daysSinceLastStrength: features.daysSinceLastStrength ?? 0,
+      targetWeekly: features.targetWeekly ?? 3,
+      loadIncreasePct: features.runLoadIncreasePct ?? 0,
+      metricLabel: features.plateauPace?.metricLabel ?? 'метрика',
+      healthLimitationsLabel: features.healthLimitationsLabel,
     };
 
-    if (rule.type === 'always') return { ok: true, vars, reason: 'always' };
-
-    if (rule.type === 'inactivity_days_gte') {
-      return {
-        ok: (f.daysSinceLastWorkout ?? 999) >= rule.days,
-        vars,
-        reason: `daysSinceLastWorkout>=${rule.days}`,
-      };
-    }
-
-    if (rule.type === 'workouts_in_days_lt') {
-      // сейчас считаем только last7, так проще
-      const ok = (f.workoutsLast7 ?? 0) < rule.threshold;
-      return { ok, vars, reason: `workoutsLast7<${rule.threshold}` };
-    }
-
-    if (rule.type === 'no_activity_in_days') {
-      if (rule.activityCode === 'GYM') {
-        return {
-          ok: (f.daysSinceLastStrength ?? 999) >= rule.days,
-          vars,
-          reason: `no GYM ${rule.days}d`,
-        };
-      }
-      // можно расширить для других типов
+    if (!this.passesConstraints(rule, features)) {
       return { ok: false, vars };
     }
 
-    if (rule.type === 'activity_present') {
-      // просто: если за N дней есть хотя бы 1 тренировка activity
-      const now = new Date();
-      const from = new Date(now.getTime() - rule.days * 86400000);
-      const c = await this.prisma.workout.count({
-        where: {
-          userId,
-          startedAt: { gte: from },
-          activityType: { code: rule.activityCode },
-        },
-      });
-      return {
-        ok: c > 0,
-        vars,
-        reason: `has ${rule.activityCode} in ${rule.days}d`,
-      };
-    }
+    switch (rule.type) {
+      case 'always':
+        return { ok: true, vars, reason: 'always' };
 
-    if (rule.type === 'run_load_increase_pct_gt') {
-      const ok =
-        (f.runLoadIncreasePct ?? 0) > rule.pct && (f.runLoadPrev ?? 0) > 0;
-      return { ok, vars, reason: `runLoadIncreasePct>${rule.pct}` };
-    }
+      case 'inactivity_days_gte':
+        return {
+          ok: features.daysSinceLastWorkout >= rule.days,
+          vars,
+          reason: `daysSinceLastWorkout>=${rule.days}`,
+        };
 
-    if (rule.type === 'plateau_metric') {
-      const ok = !!f.plateauPace?.ok;
-      return { ok, vars, reason: `plateau ${rule.metricKey}` };
-    }
+      case 'workouts_in_days_lt': {
+        const count =
+          rule.days === 7
+            ? features.workoutsLast7
+            : await this.countWorkoutsInDays(userId, rule.days);
 
-    if (rule.type === 'bmi_gte') {
-      const ok = f.bmi != null && f.bmi >= rule.bmi;
-      return { ok, vars, reason: `bmi>=${rule.bmi}` };
-    }
+        return {
+          ok: count < rule.threshold,
+          vars: { ...vars, workoutsWindow: count },
+          reason: `workoutsIn${rule.days}<${rule.threshold}`,
+        };
+      }
 
-    if (rule.type === 'no_streak_3') {
-      const ok = (f.streakDays ?? 0) < 3;
-      return { ok, vars, reason: `streak<3` };
+      case 'no_activity_in_days':
+        if (rule.activityCode === 'GYM') {
+          return {
+            ok: features.daysSinceLastStrength >= rule.days,
+            vars,
+            reason: `no ${rule.activityCode} ${rule.days}d`,
+          };
+        }
+
+        return { ok: false, vars };
+
+      case 'activity_present': {
+        const now = new Date();
+        const from = new Date(now.getTime() - rule.days * 86400000);
+        const count = await this.prisma.workout.count({
+          where: {
+            userId,
+            startedAt: { gte: from },
+            activityType: { code: rule.activityCode },
+          },
+        });
+
+        return {
+          ok: count > 0,
+          vars,
+          reason: `has ${rule.activityCode} in ${rule.days}d`,
+        };
+      }
+
+      case 'run_load_increase_pct_gt':
+        return {
+          ok:
+            features.runLoadIncreasePct > rule.pct && features.runLoadPrev > 0,
+          vars,
+          reason: `runLoadIncreasePct>${rule.pct}`,
+        };
+
+      case 'plateau_metric':
+        return {
+          ok: !!features.plateauPace?.ok,
+          vars,
+          reason: `plateau ${rule.metricKey}`,
+        };
+
+      case 'bmi_gte':
+        return {
+          ok: features.bmi != null && features.bmi >= rule.bmi,
+          vars,
+          reason: `bmi>=${rule.bmi}`,
+        };
+
+      case 'no_streak_3':
+        return {
+          ok: features.streakDays < 3,
+          vars,
+          reason: 'streak<3',
+        };
     }
 
     return { ok: false, vars };
@@ -511,69 +647,67 @@ export class RecommendationsService {
     const workoutsLast7 = Number(vars?.workoutsLast7 ?? 0);
     const targetWeekly = Number(vars?.targetWeekly ?? 3);
     const bmi = vars?.bmi ?? '—';
+    const age = vars?.age ?? '—';
     const loadIncreasePct = Number(
       vars?.loadIncreasePct ?? vars?.runLoadIncreasePct ?? 0,
     );
     const metricLabel = vars?.metricLabel ?? 'метрика';
+    const healthLimitationsLabel = vars?.healthLimitationsLabel ?? 'не указаны';
 
-    // Сначала опираемся на templateCode — он стабильнее и понятнее
     switch (templateCode) {
       case 'REC_INACTIVE_7D':
-        return `У Вас был перерыв в тренировках около ${daysSinceLastWorkout} дн.`;
-
+        return `Перерыв в тренировках уже около ${daysSinceLastWorkout} дней.`;
       case 'REC_INACTIVE_14D':
-        return `У Вас была длительная пауза в тренировках — около ${daysSinceLastWorkout} дн.`;
-
+        return `Пауза в тренировках уже около ${daysSinceLastWorkout} дней.`;
       case 'REC_LOW_FREQ':
-        return `За последние 7 дней у Вас ${workoutsLast7} тренировка(и). Рекомендованная цель — около ${targetWeekly} тренировок в неделю.`;
-
+        return `За последние 7 дней выполнено ${workoutsLast7} тренировок при ориентире около ${targetWeekly} в неделю.`;
       case 'REC_STREAK_PUSH':
-        return 'Сейчас ещё нет серии из 3 активных дней подряд.';
-
+        return 'Пока нет серии из 3 активных дней подряд.';
       case 'REC_RUN_LOAD_10':
-        return `Беговой объём вырос слишком резко — примерно на ${loadIncreasePct}%.`;
-
+        return `Беговой объем вырос примерно на ${loadIncreasePct}%, поэтому полезно чуть снизить темп роста.`;
       case 'REC_RUN_PLATEAU':
         return `Прогресс по метрике «${metricLabel}» в беге замедлился.`;
-
       case 'REC_RUN_EASY_DAY':
-        return 'В последние недели у Вас уже были беговые тренировки — можно добавить лёгкий восстановительный день.';
-
+        return 'Недавние беговые тренировки уже есть, можно добавить легкое восстановление.';
       case 'REC_NO_STRENGTH_14D':
-        return `Силовых тренировок не было около ${daysSinceLastStrength} дн.`;
-
+        return `Силовых тренировок не было около ${daysSinceLastStrength} дней.`;
       case 'REC_GYM_VOLUME':
-        return 'У Вас есть силовые тренировки — рекомендация связана с постепенным набором тренировочного объёма.';
-
+        return 'Есть база по силовым тренировкам, поэтому можно планировать аккуратный рост нагрузки.';
       case 'REC_BMI_HIGH':
-        return `Индекс массы тела сейчас около ${bmi}, поэтому совет сфокусирован на мягком возвращении к регулярной активности.`;
-
       case 'REC_BMI_OVER':
-        return `Индекс массы тела сейчас около ${bmi}, поэтому рекомендован аккуратный и стабильный режим нагрузки.`;
-
+        return `Текущий индекс массы тела около ${bmi}, поэтому совет сфокусирован на умеренной и регулярной активности.`;
+      case 'REC_LIMIT_CARDIO':
+        return `В профиле отмечены ${healthLimitationsLabel} ограничения, поэтому приоритет отдан ровной и контролируемой нагрузке.`;
+      case 'REC_LIMIT_JOINTS':
+        return `В профиле отмечены ${healthLimitationsLabel} ограничения, поэтому совет опирается на низкоударные форматы активности.`;
+      case 'REC_LIMIT_RESP':
+        return `В профиле отмечены ${healthLimitationsLabel} ограничения, поэтому нагрузку лучше наращивать особенно постепенно.`;
+      case 'REC_LIMIT_METABOLIC':
+        return `В профиле отмечены ${healthLimitationsLabel} ограничения, поэтому важна стабильная регулярность без резких скачков.`;
+      case 'REC_LIMIT_NEURO':
+        return `В профиле отмечены ${healthLimitationsLabel} ограничения, поэтому акцент смещен на безопасный и предсказуемый формат занятий.`;
+      case 'REC_AGE_40_59':
+        return `Возрастная группа ${age} лет учитывается в совете через акцент на восстановление и плавный рост нагрузки.`;
+      case 'REC_AGE_60_PLUS':
+        return `Возраст ${age} лет учитывается в совете через умеренную интенсивность и дополнительное внимание к восстановлению.`;
       case 'REC_SLEEP_WATER':
-        return 'Это базовая рекомендация по восстановлению и общему самочувствию.';
+        return 'Это базовый совет по восстановлению и общему самочувствию.';
     }
 
-    // Фолбэк для старых/неожиданных причин
-    if (!reason) {
-      return 'Рекомендация подобрана на основе Вашей активности, профиля и недавних тренировок.';
-    }
-
-    if (reason === 'always') {
-      return 'Это общая рекомендация для поддержания режима и восстановления.';
+    if (!reason || reason === 'always') {
+      return 'Рекомендация подобрана на основе профиля пользователя и недавней активности.';
     }
 
     if (/^daysSinceLastWorkout>=\d+$/.test(reason)) {
-      return `У Вас был перерыв в тренировках около ${daysSinceLastWorkout} дн.`;
+      return `Перерыв в тренировках уже около ${daysSinceLastWorkout} дней.`;
     }
 
-    if (/^workoutsLast7<\d+$/.test(reason)) {
-      return `За последние 7 дней у Вас ${workoutsLast7} тренировка(и).`;
+    if (/^workoutsIn\d+<\d+$/.test(reason)) {
+      return `За последние 7 дней выполнено ${workoutsLast7} тренировок.`;
     }
 
     if (/^bmi>=\d+$/.test(reason)) {
-      return `Индекс массы тела сейчас около ${bmi}.`;
+      return `Текущий индекс массы тела около ${bmi}.`;
     }
 
     if (reason === 'streak<3') {
@@ -581,7 +715,7 @@ export class RecommendationsService {
     }
 
     if (/^runLoadIncreasePct>\d+$/.test(reason)) {
-      return `Беговой объём вырос слишком резко — примерно на ${loadIncreasePct}%.`;
+      return `Беговой объем вырос примерно на ${loadIncreasePct}%.`;
     }
 
     if (reason.startsWith('plateau ')) {
@@ -589,13 +723,13 @@ export class RecommendationsService {
     }
 
     if (/^no GYM \d+d$/.test(reason)) {
-      return `Силовых тренировок не было около ${daysSinceLastStrength} дн.`;
+      return `Силовых тренировок не было около ${daysSinceLastStrength} дней.`;
     }
 
     if (/^has [A-Z_]+ in \d+d$/.test(reason)) {
-      return 'Рекомендация основана на Ваших недавних тренировках этого типа.';
+      return 'Рекомендация связана с недавними тренировками этого типа.';
     }
 
-    return 'Рекомендация подобрана на основе Вашей активности, профиля и недавних тренировок.';
+    return 'Рекомендация подобрана на основе профиля пользователя и недавней активности.';
   }
 }

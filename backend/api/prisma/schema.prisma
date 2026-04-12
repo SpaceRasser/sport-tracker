@@ -49,12 +49,13 @@ model Profile {
   userId String @id @map("user_id") @db.Uuid
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  gender    Gender     @default(unknown)
-  birthdate DateTime?  @db.Date
-  heightCm  Int?       @map("height_cm")
-  weightKg  Decimal?   @map("weight_kg") @db.Decimal(6, 2)
-  level     UserLevel?
-  goals     Json?      @db.JsonB
+  gender            Gender   @default(unknown)
+  birthdate         DateTime? @db.Date
+  heightCm          Int?      @map("height_cm")
+  weightKg          Decimal?  @map("weight_kg") @db.Decimal(6, 2)
+  level             UserLevel?
+  goals             Json?     @db.JsonB
+  healthLimitations String[]  @default([]) @map("health_limitations")
 
   updatedAt DateTime @updatedAt @map("updated_at")
 

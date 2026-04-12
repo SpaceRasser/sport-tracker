@@ -29,9 +29,22 @@ import { useOnboarding } from '../onboarding/OnboardingContext';
 
 type Level = 'beginner' | 'intermediate' | 'advanced';
 type Gender = 'male' | 'female' | 'other' | 'unknown';
+type HealthLimitation =
+  | 'cardiovascular'
+  | 'musculoskeletal'
+  | 'respiratory'
+  | 'metabolic'
+  | 'neurological';
 
 const NOTIF_ENABLED_KEY = 'notif_enabled_v1';
 const REMINDER_CHANNEL_ID = 'reminders';
+const HEALTH_LIMITATION_OPTIONS: HealthLimitation[] = [
+  'cardiovascular',
+  'musculoskeletal',
+  'respiratory',
+  'metabolic',
+  'neurological',
+];
 
 const palette = {
   bg: '#F5F2FF',
@@ -60,6 +73,10 @@ function clampNumStr(value: string) {
   return value.replace(/[^\d.,]/g, '').replace(',', '.');
 }
 
+function clampBirthdateStr(value: string) {
+  return value.replace(/[^\d-]/g, '').slice(0, 10);
+}
+
 function formatPhone(phone?: string | null) {
   if (!phone) return '—';
   return phone;
@@ -85,6 +102,14 @@ function genderTitle(g: Gender) {
   if (g === 'female') return 'Женский';
   if (g === 'other') return 'Другое';
   return 'Не указано';
+}
+
+function healthLimitationTitle(value: HealthLimitation) {
+  if (value === 'cardiovascular') return 'РЎРµСЂРґРµС‡РЅРѕ-СЃРѕСЃСѓРґРёСЃС‚С‹Рµ';
+  if (value === 'musculoskeletal') return 'РћРїРѕСЂРЅРѕ-РґРІРёРіР°С‚РµР»СЊРЅС‹Рµ';
+  if (value === 'respiratory') return 'Р”С‹С…Р°С‚РµР»СЊРЅС‹Рµ';
+  if (value === 'metabolic') return 'РњРµС‚Р°Р±РѕР»РёС‡РµСЃРєРёРµ';
+  return 'РќРµРІСЂРѕР»РѕРіРёС‡РµСЃРєРёРµ';
 }
 
 async function ensureReminderChannel() {
@@ -231,6 +256,48 @@ function ChipRow<T extends string>({
   );
 }
 
+function MultiChipRow<T extends string>({
+  values,
+  options,
+  getLabel,
+  onChange,
+}: {
+  values: T[];
+  options: T[];
+  getLabel: (v: T) => string;
+  onChange: (values: T[]) => void;
+}) {
+  return (
+    <View style={styles.chipRow}>
+      {options.map((opt) => {
+        const active = values.includes(opt);
+        return (
+          <Pressable
+            key={opt}
+            onPress={() =>
+              onChange(
+                active ? values.filter((item) => item !== opt) : [...values, opt],
+              )
+            }
+            style={({ pressed }) => [
+              styles.chip,
+              {
+                backgroundColor: active ? palette.purple : palette.cardSoft,
+                borderColor: active ? palette.purple : palette.line,
+                opacity: pressed ? 0.88 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.chipText, { color: active ? '#FFFFFF' : palette.text }]}>
+              {getLabel(opt)}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function ProfileScreen({ route, navigation }: any) {
   const { signOut } = useAuth();
   const onboarding = useOnboarding() as any;
@@ -248,8 +315,10 @@ export default function ProfileScreen({ route, navigation }: any) {
 
   const [gender, setGender] = useState<Gender>('unknown');
   const [level, setLevel] = useState<Level>('beginner');
+  const [birthdate, setBirthdate] = useState('');
   const [heightCm, setHeightCm] = useState('');
   const [weightKg, setWeightKg] = useState('');
+  const [healthLimitations, setHealthLimitations] = useState<HealthLimitation[]>([]);
 
   const [stats, setStats] = useState<AnalyticsSummary | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -272,8 +341,10 @@ export default function ProfileScreen({ route, navigation }: any) {
       const p = u.profile;
       setGender((p?.gender as Gender) ?? 'unknown');
       setLevel((p?.level as Level) ?? 'beginner');
+      setBirthdate(p?.birthdate ? String(p.birthdate).slice(0, 10) : '');
       setHeightCm(p?.heightCm != null ? String(p.heightCm) : '');
       setWeightKg(p?.weightKg != null ? String(p.weightKg) : '');
+      setHealthLimitations(Array.isArray(p?.healthLimitations) ? p.healthLimitations : []);
     } catch (e: any) {
       Alert.alert('Ошибка', e?.message ?? 'Не удалось загрузить профиль');
     } finally {
@@ -403,6 +474,7 @@ export default function ProfileScreen({ route, navigation }: any) {
 
       const hStr = heightCm.trim();
       const wStr = weightKg.trim();
+      const bStr = birthdate.trim();
       const h = hStr ? Number(hStr) : undefined;
       const w = wStr ? Number(wStr) : undefined;
 
@@ -416,11 +488,30 @@ export default function ProfileScreen({ route, navigation }: any) {
         return;
       }
 
+      if (bStr) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(bStr)) {
+          Alert.alert(
+            'Проверьте дату',
+            'Дату рождения нужно указать в формате ГГГГ-ММ-ДД.',
+          );
+          return;
+        }
+
+        const parsedBirthdate = new Date(`${bStr}T00:00:00`);
+        const today = new Date();
+        if (Number.isNaN(parsedBirthdate.getTime()) || parsedBirthdate > today) {
+          Alert.alert('Проверьте дату', 'Дата рождения указана некорректно.');
+          return;
+        }
+      }
+
       await updateMyProfile({
         gender,
         level,
+        birthdate: bStr || undefined,
         heightCm: h,
         weightKg: w,
+        healthLimitations,
       });
 
       await load();
@@ -445,10 +536,12 @@ export default function ProfileScreen({ route, navigation }: any) {
     }
   }, [
     name,
+    birthdate,
     heightCm,
     weightKg,
     gender,
     level,
+    healthLimitations,
     load,
     forcedSetup,
     navigation,
@@ -753,6 +846,31 @@ export default function ProfileScreen({ route, navigation }: any) {
             getLabel={(l) => levelTitle(l as Level)}
             onChange={(l) => setLevel(l as Level)}
           />
+
+          <View style={{ marginTop: 14 }}>
+            <Field
+              label="Р”Р°С‚Р° СЂРѕР¶РґРµРЅРёСЏ"
+              value={birthdate}
+              onChangeText={(v) => setBirthdate(clampBirthdateStr(v))}
+              placeholder="1998-05-24"
+            />
+            <Text style={styles.smallMeta}>
+              Р¤РѕСЂРјР°С‚: ГГГГ-ММ-ДД. Р”Р°С‚Р° РЅСѓР¶РЅР° РґР»СЏ СѓС‡РµС‚Р° РІРѕР·СЂР°СЃС‚Р° РІ СЃРѕРІРµС‚Р°С….
+            </Text>
+          </View>
+
+          <Text style={[styles.fieldLabel, { marginTop: 14, marginBottom: 8 }]}>
+            РћРіСЂР°РЅРёС‡РµРЅРёСЏ РїРѕ Р·РґРѕСЂРѕРІСЊСЋ
+          </Text>
+          <MultiChipRow
+            values={healthLimitations}
+            options={HEALTH_LIMITATION_OPTIONS}
+            getLabel={(item) => healthLimitationTitle(item)}
+            onChange={(values) => setHealthLimitations(values)}
+          />
+          <Text style={styles.smallMeta}>
+            Р•СЃР»Рё РѕРіСЂР°РЅРёС‡РµРЅРёР№ РЅРµС‚, РѕСЃС‚Р°РІСЊС‚Рµ СЌС‚Рѕ РїРѕР»Рµ РїСѓСЃС‚С‹Рј.
+          </Text>
 
           <View style={styles.twoCols}>
             <View style={{ flex: 1 }}>
