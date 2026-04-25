@@ -1,0 +1,155 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam monochrome true
+top to bottom direction
+
+class User {
+  +id: UUID
+  +vkId: string
+  +phone: string
+  +email: string
+  +name: string
+  +avatarUrl: string
+  +createdAt: DateTime
+  +updatedAt: DateTime
+}
+
+class Profile {
+  +userId: UUID
+  +gender: Gender
+  +birthdate: Date
+  +heightCm: int
+  +weightKg: decimal
+  +level: UserLevel
+  +goals: Json
+  +healthLimitations: string[]
+  +updatedAt: DateTime
+}
+
+class Workout {
+  +id: UUID
+  +userId: UUID
+  +activityTypeId: UUID
+  +startedAt: DateTime
+  +durationSec: int
+  +notes: string
+  +createdAt: DateTime
+  +updatedAt: DateTime
+}
+
+class ActivityType {
+  +id: UUID
+  +code: string
+  +name: string
+  +fieldsSchema: Json
+}
+
+class WorkoutMetric {
+  +id: UUID
+  +workoutId: UUID
+  +metricKey: string
+  +valueNum: decimal
+  +unit: string
+}
+
+class WorkoutMedia {
+  +id: UUID
+  +workoutId: UUID
+  +objectKey: string
+  +mimeType: string
+  +createdAt: DateTime
+}
+
+class PersonalRecord {
+  +id: UUID
+  +userId: UUID
+  +activityTypeId: UUID
+  +metricKey: string
+  +bestValueNum: decimal
+  +achievedAt: DateTime
+  +workoutId: UUID
+}
+
+class Achievement {
+  +id: UUID
+  +code: string
+  +title: string
+  +description: string
+  +rule: Json
+}
+
+class UserAchievement {
+  +id: UUID
+  +userId: UUID
+  +achievementId: UUID
+  +achievedAt: DateTime
+  +meta: Json
+}
+
+class RecommendationTemplate {
+  +id: UUID
+  +code: string
+  +title: string
+  +description: string
+  +rule: Json
+  +active: boolean
+}
+
+class UserRecommendation {
+  +id: UUID
+  +userId: UUID
+  +templateId: UUID
+  +createdAt: DateTime
+  +meta: Json
+  +dismissedAt: DateTime
+}
+
+class UserDevice {
+  +id: UUID
+  +userId: UUID
+  +platform: string
+  +token: string
+  +deviceId: string
+  +enabled: boolean
+}
+
+class NotificationSettings {
+  +userId: UUID
+  +enabled: boolean
+  +timezone: string
+  +inactivityEnabled: boolean
+  +inactivityDays: int
+  +workoutTimeEnabled: boolean
+  +workoutTimeLocal: string
+  +recommendationsEnabled: boolean
+}
+
+class Goal {
+  +id: UUID
+  +userId: UUID
+  +type: GoalType
+  +target: int
+  +active: boolean
+  +achievedAt: DateTime
+}
+
+User "1" -- "1" Profile
+User "1" -- "0..*" Workout
+User "1" -- "0..*" PersonalRecord
+User "1" -- "0..*" UserAchievement
+User "1" -- "0..*" UserRecommendation
+User "1" -- "0..*" UserDevice
+User "1" -- "1" NotificationSettings
+User "1" -- "0..*" Goal
+
+Workout "0..*" -- "1" ActivityType
+Workout "1" -- "0..*" WorkoutMetric
+Workout "1" -- "0..*" WorkoutMedia
+
+PersonalRecord "0..*" -- "1" ActivityType
+PersonalRecord "0..*" -- "0..1" Workout
+
+UserAchievement "0..*" -- "1" Achievement
+UserRecommendation "0..*" -- "1" RecommendationTemplate
+@enduml

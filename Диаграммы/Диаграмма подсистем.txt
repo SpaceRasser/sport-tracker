@@ -1,0 +1,39 @@
+@startuml
+left to right direction
+
+skinparam shadowing false
+skinparam monochrome true
+skinparam defaultTextAlignment center
+skinparam linetype ortho
+skinparam ArrowThickness 1
+skinparam rectangle {
+  BackgroundColor white
+  BorderColor black
+}
+
+rectangle "Подсистема\nвзаимодействия\nс пользователем" as UI
+rectangle "Подсистема\nпользователя" as USER
+rectangle "Подсистема\nтренировок" as TRAIN
+rectangle "Подсистема\nаналитики" as ANALYTICS
+rectangle "Подсистема\nрекомендаций" as RECS
+rectangle "Подсистема\nуведомлений" as NOTIFY
+rectangle "Подсистема\nинтеграции" as EXT
+rectangle "Подсистема\nхранения данных" as STORAGE
+
+UI -[hidden]down-> USER
+USER -[hidden]right-> TRAIN
+TRAIN -[hidden]right-> ANALYTICS
+ANALYTICS -[hidden]right-> RECS
+RECS -[hidden]up-> NOTIFY
+STORAGE -[hidden]up-> TRAIN
+EXT -[hidden]up-> UI
+
+UI --> USER
+USER --> TRAIN
+TRAIN --> ANALYTICS
+ANALYTICS --> RECS
+RECS --> NOTIFY
+STORAGE --> TRAIN
+EXT --> UI
+
+@enduml

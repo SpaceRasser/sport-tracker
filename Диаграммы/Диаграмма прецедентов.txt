@@ -1,0 +1,127 @@
+Для plantuml:
+
+@startuml
+left to right direction
+
+skinparam shadowing false
+skinparam monochrome true
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment center
+skinparam linetype ortho
+skinparam ArrowThickness 1
+skinparam usecase {
+  BackgroundColor white
+  BorderColor black
+  FontColor black
+}
+skinparam package {
+  BackgroundColor white
+  BorderColor black
+  FontColor black
+}
+skinparam rectangle {
+  BackgroundColor white
+  BorderColor black
+  FontColor black
+}
+skinparam actor {
+  BorderColor black
+  FontColor black
+}
+
+actor "Пользователь" as User
+actor "VK ID" as VK
+actor "SMS-сервис" as SMS
+actor "Health Connect" as HC
+actor "Push-сервис" as PUSH
+
+rectangle "Система SportTracker" {
+
+  package "Авторизация" as P1 {
+    usecase "Авторизоваться" as UC_Auth
+    usecase "Войти через\nVK ID" as UC_VK
+    usecase "Войти\nпо SMS" as UC_SMS
+
+    UC_VK -[hidden]down- UC_SMS
+  }
+
+  package "Профиль пользователя" as P2 {
+    usecase "Работать\nс профилем" as UC_ProfileMain
+    usecase "Просматривать и\nредактировать профиль" as UC_Profile
+    usecase "Указать дату\nрождения" as UC_Birth
+    usecase "Указать ограничения\nпо здоровью" as UC_Health
+
+    UC_Profile -[hidden]down- UC_Birth
+    UC_Birth -[hidden]down- UC_Health
+  }
+
+  package "Тренировки" as P3 {
+    usecase "Работать\nс тренировками" as UC_WorkoutMain
+    usecase "Добавить\nтренировку" as UC_Add
+    usecase "Редактировать\nтренировку" as UC_Edit
+    usecase "Удалить\nтренировку" as UC_Delete
+    usecase "Просматривать историю\nтренировок" as UC_History
+    usecase "Импортировать данные\nиз Health Connect" as UC_Import
+
+    UC_Add -[hidden]down- UC_Edit
+    UC_Edit -[hidden]down- UC_Delete
+    UC_Delete -[hidden]down- UC_History
+    UC_History -[hidden]down- UC_Import
+  }
+
+  package "Аналитика и результаты" as P4 {
+    usecase "Просматривать\nрезультаты" as UC_ResultMain
+    usecase "Просматривать\nаналитику" as UC_Analytics
+    usecase "Просматривать личные\nрекорды" as UC_Records
+    usecase "Просматривать\nдостижения" as UC_Ach
+    usecase "Получать рекомендации\nи советы" as UC_Recs
+
+    UC_Analytics -[hidden]down- UC_Records
+    UC_Records -[hidden]down- UC_Ach
+    UC_Ach -[hidden]down- UC_Recs
+  }
+
+  package "Уведомления" as P5 {
+    usecase "Получать push-\nуведомления" as UC_Push
+  }
+
+  ' Расположение блоков
+  P1 -[hidden]down- P2
+  P2 -[hidden]down- P3
+  P3 -[hidden]right- P4
+  P4 -[hidden]down- P5
+}
+
+' Пользователь взаимодействует только с верхнеуровневыми сценариями
+User --> UC_Auth
+User --> UC_ProfileMain
+User --> UC_WorkoutMain
+User --> UC_ResultMain
+User --> UC_Push
+
+' Детализация сценариев
+UC_Auth ..> UC_VK : <<include>>
+UC_Auth ..> UC_SMS : <<include>>
+
+UC_ProfileMain ..> UC_Profile : <<include>>
+UC_Profile ..> UC_Birth : <<include>>
+UC_Profile ..> UC_Health : <<include>>
+
+UC_WorkoutMain ..> UC_Add : <<include>>
+UC_WorkoutMain ..> UC_Edit : <<include>>
+UC_WorkoutMain ..> UC_Delete : <<include>>
+UC_WorkoutMain ..> UC_History : <<include>>
+UC_WorkoutMain ..> UC_Import : <<include>>
+
+UC_ResultMain ..> UC_Analytics : <<include>>
+UC_ResultMain ..> UC_Records : <<include>>
+UC_ResultMain ..> UC_Ach : <<include>>
+UC_ResultMain ..> UC_Recs : <<include>>
+
+' Внешние сервисы
+UC_VK <-- VK
+UC_SMS <-- SMS
+UC_Import <-- HC
+UC_Push <-- PUSH
+
+@enduml

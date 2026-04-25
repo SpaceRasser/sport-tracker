@@ -105,11 +105,11 @@ function genderTitle(g: Gender) {
 }
 
 function healthLimitationTitle(value: HealthLimitation) {
-  if (value === 'cardiovascular') return 'РЎРµСЂРґРµС‡РЅРѕ-СЃРѕСЃСѓРґРёСЃС‚С‹Рµ';
-  if (value === 'musculoskeletal') return 'РћРїРѕСЂРЅРѕ-РґРІРёРіР°С‚РµР»СЊРЅС‹Рµ';
-  if (value === 'respiratory') return 'Р”С‹С…Р°С‚РµР»СЊРЅС‹Рµ';
-  if (value === 'metabolic') return 'РњРµС‚Р°Р±РѕР»РёС‡РµСЃРєРёРµ';
-  return 'РќРµРІСЂРѕР»РѕРіРёС‡РµСЃРєРёРµ';
+  if (value === 'cardiovascular') return 'Сердечно-сосудистые';
+  if (value === 'musculoskeletal') return 'Опорно-двигательные';
+  if (value === 'respiratory') return 'Дыхательные';
+  if (value === 'metabolic') return 'Метаболические';
+  return 'Неврологические';
 }
 
 async function ensureReminderChannel() {
@@ -849,18 +849,18 @@ export default function ProfileScreen({ route, navigation }: any) {
 
           <View style={{ marginTop: 14 }}>
             <Field
-              label="Р”Р°С‚Р° СЂРѕР¶РґРµРЅРёСЏ"
+              label="Дата рождения"
               value={birthdate}
               onChangeText={(v) => setBirthdate(clampBirthdateStr(v))}
               placeholder="1998-05-24"
             />
             <Text style={styles.smallMeta}>
-              Р¤РѕСЂРјР°С‚: ГГГГ-ММ-ДД. Р”Р°С‚Р° РЅСѓР¶РЅР° РґР»СЏ СѓС‡РµС‚Р° РІРѕР·СЂР°СЃС‚Р° РІ СЃРѕРІРµС‚Р°С….
+              Формат: ГГГГ-ММ-ДД. Дата нужна для учета возраста в советах.
             </Text>
           </View>
 
           <Text style={[styles.fieldLabel, { marginTop: 14, marginBottom: 8 }]}>
-            РћРіСЂР°РЅРёС‡РµРЅРёСЏ РїРѕ Р·РґРѕСЂРѕРІСЊСЋ
+            Ограничения по здоровью
           </Text>
           <MultiChipRow
             values={healthLimitations}
@@ -869,7 +869,7 @@ export default function ProfileScreen({ route, navigation }: any) {
             onChange={(values) => setHealthLimitations(values)}
           />
           <Text style={styles.smallMeta}>
-            Р•СЃР»Рё РѕРіСЂР°РЅРёС‡РµРЅРёР№ РЅРµС‚, РѕСЃС‚Р°РІСЊС‚Рµ СЌС‚Рѕ РїРѕР»Рµ РїСѓСЃС‚С‹Рј.
+            Если ограничений нет, оставьте это поле пустым.
           </Text>
 
           <View style={styles.twoCols}>
