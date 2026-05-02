@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0B1022" />
+  <title>SportTracker — дневник тренировок, рекорды и прогресс</title>
+  <meta name="description" content="SportTracker помогает фиксировать тренировки, отслеживать личные рекорды и видеть прогресс по понятной аналитике." />
+
+  <meta property="og:title" content="SportTracker" />
+  <meta property="og:description" content="Дневник тренировок, PR и прогресс — всё в одном месте." />
+  <meta property="og:image" content="assets/icon.png" />
+  <meta property="og:type" content="website" />
+
+  <link rel="icon" href="assets/favicon.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">
+        <img src="assets/icon.png" alt="SportTracker" />
+        <div>
+          <div class="name">SportTracker</div>
+          <div class="tag">Тренировки • PR • Аналитика</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <a href="#features">Возможности</a>
+        <a href="#about">О приложении</a>
+        <a href="#download">Скачать</a>
+        <a href="support.html">Поддержка</a>
+        <a href="privacy.html">Политика</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-card">
+          <span class="kicker"><span class="dot"></span> MVP уже работает • Android</span>
+          <h1 class="h1">Тренируйся умнее.
+            <br/>Видь прогресс наглядно.</h1>
+          <p class="lead">
+            SportTracker — это дневник тренировок с метриками, личными рекордами (PR), достижениями и рекомендациями.
+            Всё собрано в одном приложении — без лишнего шума.
+          </p>
+
+          <div class="cta-row" id="download">
+            <a class="btn btn-primary" href="#" onclick="return false" title="Скоро в Google Play">
+              <span class="svg" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M4.5 3.5l11 8.5-11 8.5V3.5Z" stroke="white" stroke-width="1.8" stroke-linejoin="round"/>
+                  <path d="M15.5 12l4-2.5c.9-.56.9-1.44 0-2L15.5 5" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M15.5 19l4-2.5c.9-.56.9-1.44 0-2L15.5 12" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </span>
+              Google Play (скоро)
+            </a>
+
+            <a class="btn btn-ghost" href="downloads/SportTracker.apk" download>
+              <span class="svg" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 3v10" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M8 10l4 4 4-4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M5 19h14" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </span>
+              Скачать APK
+            </a>
+
+            <a class="btn btn-ghost" href="#features">
+              <span class="svg" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M7 10l5 5 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              Посмотреть возможности
+            </a>
+          </div>
+
+          <div class="smallnote">
+            Контакты для связи: <a href="mailto:rasser31.j@gmail.com">rasser31.j@gmail.com</a>
+          </div>
+        </div>
+
+        <aside class="side">
+          <div class="preview">
+            <div class="phone">
+              <div class="phone-inner">
+                <div class="badge"><i></i> Умные советы + рекорды</div>
+                <div class="badge"><i style="background:var(--brand); box-shadow:0 0 0 4px rgba(45,107,255,.16)"></i> Быстрые действия</div>
+              </div>
+            </div>
+          </div>
+          <h3>Фокус на удобстве</h3>
+          <p>
+            Быстрый ввод тренировки, аккуратная сводка, понятные карточки метрик.
+            Минимум кликов — максимум пользы.
+          </p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <div class="container">
+        <h2 class="section-title">Что умеет SportTracker</h2>
+        <div class="grid">
+          <div class="card">
+            <div class="title"><span class="pill">⚡</span> Личные рекорды (PR)</div>
+            <p>Авто‑выявление лучших результатов по метрикам: дистанция, темп, вес, повторения и т.д.</p>
+          </div>
+          <div class="card">
+            <div class="title"><span class="pill">📈</span> Аналитика прогресса</div>
+            <p>Сводки и динамика: за неделю/месяц, тренды нагрузки, удобные цифры без «лишней математики».</p>
+          </div>
+          <div class="card">
+            <div class="title"><span class="pill">🏆</span> Достижения</div>
+            <p>Мотивация без спама: достижения за регулярность, рекорды и личные цели.</p>
+          </div>
+          <div class="card">
+            <div class="title"><span class="pill">✨</span> Рекомендации</div>
+            <p>Умные подсказки на основе активности: когда поднажать, когда восстановиться и что улучшить.</p>
+          </div>
+          <div class="card">
+            <div class="title"><span class="pill">🔔</span> Уведомления</div>
+            <p>Напоминания о времени тренировки и полезные события (по настройкам пользователя).</p>
+          </div>
+          <div class="card">
+            <div class="title"><span class="pill">🔒</span> Вход через VK ID</div>
+            <p>Быстрый вход без пароля. Поддержка Android и безопасность токенов.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="hero-card" style="padding:18px">
+          <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between">
+            <div>
+              <div class="kicker"><span class="dot" style="background:var(--brand)"></span> Скачать и попробовать</div>
+              <div style="margin-top:10px; font-weight:950; font-size:18px; letter-spacing:-.2px">APK доступен для тестирования</div>
+              <div class="smallnote" style="margin-top:8px">Если Android предупреждает о неизвестном источнике — это нормально для тестовой установки.</div>
+            </div>
+            <div class="cta-row">
+              <a class="btn btn-primary" href="downloads/SportTracker.apk" download>Скачать APK</a>
+              <a class="btn btn-ghost btn-disabled" href="#" onclick="return false">Google Play (скоро)</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  
+    <section class="section" id="about">
+      <div class="container">
+        <div class="two-col">
+          <div class="card big">
+            <div class="title"><span class="pill">✨</span> О приложении</div>
+            <p class="p">
+              SportTracker — личный помощник для тренировок: фиксируй занятия, следи за PR, анализируй прогресс и получай мягкие подсказки без спама.
+              Проект сейчас в активной разработке (MVP), поэтому обратная связь особенно ценна.
+            </p>
+            <div class="mini-grid">
+              <div class="mini">
+                <div class="mini-k">Для кого</div>
+                <div class="mini-v">зал • бег • домашние тренировки</div>
+              </div>
+              <div class="mini">
+                <div class="mini-k">Главный принцип</div>
+                <div class="mini-v">минимум кликов → максимум пользы</div>
+              </div>
+              <div class="mini">
+                <div class="mini-k">Платформы</div>
+                <div class="mini-v">Android (сейчас) • iOS (позже)</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card big">
+            <div class="title"><span class="pill">🛡️</span> Безопасность</div>
+            <ul class="list">
+              <li><b>Токены и доступы</b> храним безопасно (Secure Store на устройстве), сервер выдаёт JWT.</li>
+              <li><b>Минимум данных</b> — берём только то, что нужно для входа и статистики.</li>
+              <li><b>Уведомления</b> можно отключить в настройках, никакого “спама”.</li>
+              <li><b>Прозрачность</b> — условия и политика доступны на сайте.</li>
+            </ul>
+            <div class="actions">
+              <a class="btn btn-ghost" href="privacy.html">Политика</a>
+              <a class="btn btn-ghost" href="terms.html">Условия</a>
+              <a class="btn btn-primary" href="support.html">Поддержка</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="card faq">
+          <div class="title"><span class="pill">❓</span> FAQ</div>
+
+          <details class="qa">
+            <summary>Почему Google Play “скоро”?</summary>
+            <div class="qa-body">
+              Сейчас сборка проходит финальную полировку. Как только приложение появится в Google Play, мы просто обновим ссылку — интерфейс уже готов.
+            </div>
+          </details>
+
+          <details class="qa">
+            <summary>Безопасно ли ставить APK?</summary>
+            <div class="qa-body">
+              Для тестовой версии Android может показать предупреждение “неизвестный источник”. Это нормально. Скачивай APK только с официального домена SportTracker.
+            </div>
+          </details>
+
+          <details class="qa">
+            <summary>Как сообщить о баге или предложить фичу?</summary>
+            <div class="qa-body">
+              Перейди на страницу “Поддержка” — там есть быстрые шаги и готовый шаблон письма.
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-row">
+      <div>
+        <div style="font-weight:950">SportTracker</div>
+        <div style="margin-top:6px">Россия • Контакт: <a href="mailto:rasser31.j@gmail.com">rasser31.j@gmail.com</a></div>
+      </div>
+      <div style="display:flex; gap:14px; flex-wrap:wrap">
+        <a href="support.html">Поддержка</a>
+        <a href="privacy.html">Политика конфиденциальности</a>
+        <a href="terms.html">Условия использования</a>
+      </div>
+    </div>
+  </footer>
+
+  <div class="mobile-bar" aria-label="Быстрая загрузка">
+    <div class="inner">
+      <a class="btn btn-primary" href="#download">Google Play (скоро)</a>
+      <a class="btn btn-ghost" href="#download">Скачать APK</a>
+    </div>
+  </div>
+
+</body>
+</html>
