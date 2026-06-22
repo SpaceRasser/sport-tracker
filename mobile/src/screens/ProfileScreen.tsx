@@ -1,5 +1,5 @@
 // mobile/src/screens/ProfileScreen.tsx
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -312,6 +312,7 @@ export default function ProfileScreen({ route, navigation }: any) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
 
   const [gender, setGender] = useState<Gender>('unknown');
   const [level, setLevel] = useState<Level>('beginner');
@@ -351,6 +352,10 @@ export default function ProfileScreen({ route, navigation }: any) {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarUrl]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -683,8 +688,13 @@ export default function ProfileScreen({ route, navigation }: any) {
               style={({ pressed }) => [{ opacity: pressed || uploadingAvatar ? 0.88 : 1 }]}
             >
               <View style={styles.heroAvatar}>
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                {avatarUrl && !avatarLoadFailed ? (
+                  <Image
+                    source={{ uri: avatarUrl }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                    onError={() => setAvatarLoadFailed(true)}
+                  />
                 ) : (
                   <Text style={styles.heroAvatarText}>{initials(name)}</Text>
                 )}

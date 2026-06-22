@@ -86,6 +86,11 @@ function DrawerHeader({
   avatarUrl?: string | null;
 }) {
   const initials = initialsFromName(name);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarUrl]);
 
   return (
     <LinearGradient
@@ -109,11 +114,12 @@ function DrawerHeader({
       >
         <View style={styles.profileRow}>
           <View style={styles.avatarWrap}>
-            {avatarUrl ? (
+            {avatarUrl && !avatarLoadFailed ? (
               <Image
                 source={{ uri: avatarUrl }}
                 style={{ width: "100%", height: "100%" }}
                 resizeMode="cover"
+                onError={() => setAvatarLoadFailed(true)}
               />
             ) : (
               <Text style={styles.avatarText}>{initials}</Text>

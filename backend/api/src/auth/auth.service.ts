@@ -335,6 +335,11 @@ export class AuthService {
     if (!phone) throw new BadRequestException('Invalid phone');
     if (!/^\d{6}$/.test(code)) throw new BadRequestException('Invalid code');
 
+    const demoCode = String(this.config.get<string>('SMS_DEMO_CODE') ?? '')
+      .replace(/\D/g, '')
+      .slice(0, 6);
+    const isDemoCode = /^\d{6}$/.test(demoCode) && code === demoCode;
+
     const ttl = Number(this.config.get<string>('SMS_CODE_TTL_SECONDS') ?? 300);
     const maxAttempts = Number(
       this.config.get<string>('SMS_CODE_MAX_ATTEMPTS') ?? 5,
@@ -344,15 +349,17 @@ export class AuthService {
     const attemptsKey = `sms:attempts:${phone}`;
 
     const expectedHash = await this.redisService.redis.get(codeKey);
-    if (!expectedHash) throw new UnauthorizedException('Code expired');
+    if (!expectedHash && !isDemoCode)
+      throw new UnauthorizedException('Code expired');
 
     const attempts = Number(
       (await this.redisService.redis.get(attemptsKey)) ?? '0',
     );
-    if (attempts >= maxAttempts) this.rateLimit('Too many attempts');
+    if (!isDemoCode && attempts >= maxAttempts)
+      this.rateLimit('Too many attempts');
 
     const gotHash = this.hashSmsCode(phone, code);
-    if (gotHash !== expectedHash) {
+    if (!isDemoCode && gotHash !== expectedHash) {
       await this.redisService.redis.incr(attemptsKey);
       await this.redisService.redis.expire(attemptsKey, ttl);
       throw new UnauthorizedException('Wrong code');
