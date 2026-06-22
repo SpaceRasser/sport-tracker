@@ -259,9 +259,6 @@ export class AuthService {
     if (!phone)
       throw new BadRequestException('Invalid phone. Expected RU phone number');
 
-    const apiId = this.config.get<string>('SMSRU_API_ID');
-    if (!apiId) throw new BadRequestException('SMSRU_API_ID is not set');
-
     const ttl = Number(this.config.get<string>('SMS_CODE_TTL_SECONDS') ?? 300);
     const resend = Number(
       this.config.get<string>('SMS_CODE_RESEND_SECONDS') ?? 60,
@@ -274,7 +271,13 @@ export class AuthService {
     const locked = await this.redisService.redis.get(lockKey);
     if (locked) this.rateLimit('Try again later');
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const demoCode = String(this.config.get<string>('SMS_DEMO_CODE') ?? '')
+      .replace(/\D/g, '')
+      .slice(0, 6);
+    const useDemoCode = /^\d{6}$/.test(demoCode);
+    const code = useDemoCode
+      ? demoCode
+      : String(Math.floor(100000 + Math.random() * 900000));
 
     const codeKey = `sms:code:${phone}`;
     const attemptsKey = `sms:attempts:${phone}`;
@@ -287,6 +290,13 @@ export class AuthService {
     );
     await this.redisService.redis.set(attemptsKey, '0', 'EX', ttl);
     await this.redisService.redis.set(lockKey, '1', 'EX', resend);
+
+    if (useDemoCode) {
+      return { ok: true, phone, maxAttempts };
+    }
+
+    const apiId = this.config.get<string>('SMSRU_API_ID');
+    if (!apiId) throw new BadRequestException('SMSRU_API_ID is not set');
 
     const test = String(this.config.get<string>('SMSRU_TEST') ?? '0');
     const msg = `Код входа: ${code}. Действует ${Math.ceil(ttl / 60)} мин.`;
