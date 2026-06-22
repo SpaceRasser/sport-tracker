@@ -1,5 +1,39 @@
 import { api } from './client';
 
+export type VkIdLoginPayload = VkIdExchangePayload;
+export const authVkId = authVkIdExchange;
+
+export async function authDemo() {
+  const res = await api.post('/auth/demo');
+  return res.data as { user: any; accessToken: string; refreshToken: string };
+}
+
+export type DemoRegisterPayload = {
+  phone: string;
+  password: string;
+  name?: string;
+};
+
+export type DemoLoginPayload = {
+  phone: string;
+  password: string;
+};
+
+export async function authDemoCheckPhone(phone: string) {
+  const res = await api.post('/auth/demo/check-phone', { phone });
+  return res.data as { exists: boolean };
+}
+
+export async function authDemoRegister(payload: DemoRegisterPayload) {
+  const res = await api.post('/auth/demo/register', payload);
+  return res.data as { user: any; accessToken: string; refreshToken: string };
+}
+
+export async function authDemoLogin(payload: DemoLoginPayload) {
+  const res = await api.post('/auth/demo/login', payload);
+  return res.data as { user: any; accessToken: string; refreshToken: string };
+}
+
 // ===========================
 // VK (PKCE exchange: code -> tokens)
 // ===========================

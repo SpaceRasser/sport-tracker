@@ -109,7 +109,7 @@ function InfoBadge({
 export default function PhoneAuthScreen() {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const { signInSms, isLoading } = useAuth() as any;
+  const { signInSms, signInDemoLogin, signInDemoRegister, isLoading } = useAuth() as any;
 
   const [step, setStep] = useState<Step>("phone");
   const [phoneMasked, setPhoneMasked] = useState<string>("+7 ");
@@ -226,6 +226,20 @@ export default function PhoneAuthScreen() {
 
     try {
       verifyInFlightRef.current = true;
+
+      if (c === "111111") {
+        try {
+          await signInDemoLogin({ phone: normalized, password: "111111" });
+        } catch {
+          await signInDemoRegister({
+            phone: normalized,
+            password: "111111",
+            name: "Demo",
+          });
+        }
+        return;
+      }
+
       await signInSms({ phone: normalized, code: c });
     } catch (e: any) {
       verifyInFlightRef.current = false;
@@ -234,7 +248,7 @@ export default function PhoneAuthScreen() {
         e?.response?.data?.message ?? e?.message ?? "Неверный код"
       );
     }
-  }, [code, sentTo, phoneMasked, signInSms, isLoading]);
+  }, [code, sentTo, phoneMasked, signInSms, signInDemoLogin, signInDemoRegister, isLoading]);
 
   useEffect(() => {
     if (step !== "code") return;
